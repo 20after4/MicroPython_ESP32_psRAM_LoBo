@@ -62,6 +62,7 @@
 // Embedded fonts
 extern uint8_t tft_SmallFont[];
 extern uint8_t tft_DefaultFont[];
+extern uint8_t tft_def_small[];
 extern uint8_t tft_Dejavu18[];
 extern uint8_t tft_Dejavu24[];
 extern uint8_t tft_Ubuntu16[];
@@ -1556,6 +1557,7 @@ void TFT_setFont(uint8_t font, const char *font_file)
 	  else if (font == MINYA24_FONT) cfont.font = tft_minya24;
 	  else if (font == TOONEY32_FONT) cfont.font = tft_tooney32;
 	  else if (font == SMALL_FONT) cfont.font = tft_SmallFont;
+	  else if (font == DEF_SMALL_FONT) cfont.font = tft_def_small;
 	  else cfont.font = tft_DefaultFont;
 
 	  cfont.bitmap = 1;

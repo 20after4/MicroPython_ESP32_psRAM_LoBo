@@ -243,6 +243,7 @@ LIBS_SRC_C = $(addprefix esp32/libs/,\
 	tft/SmallFont.c \
 	tft/tooney32.c \
 	tft/Ubuntu16.c \
+	tft/def_small.c \
 	esp_rmt.c \
 	telnet.c \
 	ftp.c \
