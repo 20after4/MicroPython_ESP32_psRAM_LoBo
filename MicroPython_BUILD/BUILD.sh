@@ -16,7 +16,7 @@
 # ./BUILD copyfs        - flash prebuilt spiffs image to ESP32
 
 
-TOOLS_VER=ver20170923.id
+TOOLS_VER=ver20171008.id
 
 #---------------------------------------------------------------------------------------------------------------------
 # Check parameters
@@ -27,6 +27,7 @@ if [ "${opt}" == "verbose" ]; then
 fi
 opt2="xx"
 arg="$1"
+jopt="n"
 
 if [ "${opt:0:2}" == "-j" ]; then
     opt2="$2"
@@ -48,6 +49,7 @@ if [ "${opt:0:2}" == "-j" ]; then
     if [ "$3" == "verbose" ]; then
         export MP_SHOW_PROGRESS=yes
     fi
+    jopt="y"
 
 elif [ "${opt}" == "makefs" ] || [ "${opt}" == "flashfs" ] || [ "${opt}" == "copyfs" ]; then
     if [ "$2" == "verbose" ]; then
@@ -259,6 +261,11 @@ if [ "${arg}" == "all" ] || [ "${arg}" == "flash" ]; then
             exit 1
         fi
         cd ${BUILD_BASE_DIR}
+        if [ ! -f "components/micropython/mpy-cross/mpy-cross" ]; then
+            echo "FAILED"
+            echo "=================="
+            exit 1
+        fi
     fi
     # ###########################################################################
 fi
@@ -420,6 +427,16 @@ else
     echo "Building MicroPython firmware..."
     echo "================================"
 
+    if [ "${MP_SHOW_PROGRESS}" == "yes" ]; then
+        make  ${opt} ${arg}
+    else
+        make  ${opt} ${arg} > /dev/null 2>&1
+    fi
+fi
+
+if [ $? -ne 0 ] && [ "${jopt}" == "y" ]; then
+    echo "Build failed, starting again..."
+    sleep 2
     if [ "${MP_SHOW_PROGRESS}" == "yes" ]; then
         make  ${opt} ${arg}
     else

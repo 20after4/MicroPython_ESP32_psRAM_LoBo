@@ -39,6 +39,7 @@
 #include "esp_task.h"
 #include "soc/cpu.h"
 #include "esp_log.h"
+#include "driver/periph_ctrl.h"
 
 #include "py/stackctrl.h"
 #include "py/nlr.h"
@@ -198,9 +199,12 @@ void micropython_entry(void) {
 		#if CONFIG_SPIRAM_USE_CAPS_ALLOC
 		printf("uPY  heap size = %d bytes (in SPIRAM using heap_caps_malloc)\n\n", MP_TASK_HEAP_SIZE);
 		mp_task_heap = heap_caps_malloc(MP_TASK_HEAP_SIZE, MALLOC_CAP_SPIRAM);
-		#else SPIRAM_USE_MEMMAP == y
+		#elif SPIRAM_USE_MEMMAP
 		printf("uPY  heap size = %d bytes (in SPIRAM using MEMMAP)\n\n", MP_TASK_HEAP_SIZE);
 		mp_task_heap = (uint8_t *)0x3f800000;
+		#else
+		printf("uPY  heap size = %d bytes (in SPIRAM using malloc)\n\n", MP_TASK_HEAP_SIZE);
+		mp_task_heap = malloc(MP_TASK_HEAP_SIZE);
 		#endif
     #else
 		// ## USING DRAM FOR HEAP ##
@@ -212,6 +216,10 @@ void micropython_entry(void) {
         printf("Error allocating heap, Halted.\n");
         return;
     }
+
+    // Workaround for possible bug in i2c driver !?
+    periph_module_disable(PERIPH_I2C0_MODULE);
+    periph_module_enable(PERIPH_I2C0_MODULE);
 
     // ==== Create and start main MicroPython task ====
     #if MICROPY_PY_THREAD

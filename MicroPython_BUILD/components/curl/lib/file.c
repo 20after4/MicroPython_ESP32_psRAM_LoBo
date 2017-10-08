@@ -108,7 +108,6 @@ const struct Curl_handler Curl_handler_file = {
   ZERO_NULL,                            /* perform_getsock */
   file_disconnect,                      /* disconnect */
   ZERO_NULL,                            /* readwrite */
-  ZERO_NULL,                            /* connection_check */
   0,                                    /* defport */
   CURLPROTO_FILE,                       /* protocol */
   PROTOPT_NONETWORK | PROTOPT_NOURLQUERY /* flags */
@@ -139,28 +138,26 @@ static CURLcode file_range(struct connectdata *conn)
   struct Curl_easy *data = conn->data;
 
   if(data->state.use_range && data->state.range) {
-    CURLofft from_t;
-    CURLofft to_t;
-    from_t = curlx_strtoofft(data->state.range, &ptr, 0, &from);
-    if(from_t == CURL_OFFT_FLOW)
-      return CURLE_RANGE_ERROR;
+    from=curlx_strtoofft(data->state.range, &ptr, 0);
     while(*ptr && (ISSPACE(*ptr) || (*ptr=='-')))
       ptr++;
-    to_t = curlx_strtoofft(ptr, &ptr2, 0, &to);
-    if(to_t == CURL_OFFT_FLOW)
-      return CURLE_RANGE_ERROR;
-    if((to_t == CURL_OFFT_INVAL) && !from_t) {
+    to=curlx_strtoofft(ptr, &ptr2, 0);
+    if(ptr == ptr2) {
+      /* we didn't get any digit */
+      to=-1;
+    }
+    if((-1 == to) && (from>=0)) {
       /* X - */
       data->state.resume_from = from;
       DEBUGF(infof(data, "RANGE %" CURL_FORMAT_CURL_OFF_T " to end of file\n",
                    from));
     }
-    else if((from_t == CURL_OFFT_INVAL) && !to_t) {
+    else if(from < 0) {
       /* -Y */
-      data->req.maxdownload = to;
-      data->state.resume_from = -to;
+      data->req.maxdownload = -from;
+      data->state.resume_from = from;
       DEBUGF(infof(data, "RANGE the last %" CURL_FORMAT_CURL_OFF_T " bytes\n",
-                   to));
+                   -from));
     }
     else {
       /* X-Y */
@@ -314,6 +311,7 @@ static CURLcode file_upload(struct connectdata *conn)
   size_t nread;
   size_t nwrite;
   curl_off_t bytecount = 0;
+  struct timeval now = Curl_tvnow();
   struct_stat file_stat;
   const char *buf2;
 
@@ -401,7 +399,7 @@ static CURLcode file_upload(struct connectdata *conn)
     if(Curl_pgrsUpdate(conn))
       result = CURLE_ABORTED_BY_CALLBACK;
     else
-      result = Curl_speedcheck(data, Curl_tvnow());
+      result = Curl_speedcheck(data, now);
   }
   if(!result && Curl_pgrsUpdate(conn))
     result = CURLE_ABORTED_BY_CALLBACK;
@@ -438,6 +436,7 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
   char *buf = data->state.buffer;
   curl_off_t bytecount = 0;
   int fd;
+  struct timeval now = Curl_tvnow();
   struct FILEPROTO *file;
 
   *done = TRUE; /* unconditionally */
@@ -503,7 +502,7 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
              tm->tm_hour,
              tm->tm_min,
              tm->tm_sec);
-    result = Curl_client_write(conn, CLIENTWRITE_BOTH, header, 0);
+    result = Curl_client_write(conn, CLIENTWRITE_BOTH, buf, 0);
     if(!result)
       /* set the file size to make it available post transfer */
       Curl_pgrsSetDownloadSize(data, expected_size);
@@ -586,7 +585,7 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
     if(Curl_pgrsUpdate(conn))
       result = CURLE_ABORTED_BY_CALLBACK;
     else
-      result = Curl_speedcheck(data, Curl_tvnow());
+      result = Curl_speedcheck(data, now);
   }
   if(Curl_pgrsUpdate(conn))
     result = CURLE_ABORTED_BY_CALLBACK;

@@ -192,7 +192,6 @@ const struct Curl_handler Curl_handler_telnet = {
   ZERO_NULL,                            /* perform_getsock */
   ZERO_NULL,                            /* disconnect */
   ZERO_NULL,                            /* readwrite */
-  ZERO_NULL,                            /* connection_check */
   PORT_TELNET,                          /* defport */
   CURLPROTO_TELNET,                     /* protocol */
   PROTOPT_NONE | PROTOPT_NOURLQUERY     /* flags */
@@ -899,7 +898,7 @@ static CURLcode check_telnet_options(struct connectdata *conn)
       }
 
       failf(data, "Unknown telnet option %s", head->data);
-      result = CURLE_UNKNOWN_OPTION;
+      result = CURLE_UNKNOWN_TELNET_OPTION;
       break;
     }
     failf(data, "Syntax error in telnet option: %s", head->data);
@@ -1221,63 +1220,43 @@ CURLcode telrcv(struct connectdata *conn,
 }
 
 /* Escape and send a telnet data block */
+/* TODO: write large chunks of data instead of one byte at a time */
 static CURLcode send_telnet_data(struct connectdata *conn,
                                  char *buffer, ssize_t nread)
 {
-  ssize_t escapes, i, j, outlen;
-  unsigned char *outbuf = NULL;
-  CURLcode result = CURLE_OK;
+  unsigned char outbuf[2];
   ssize_t bytes_written, total_written;
+  int out_count;
+  CURLcode result = CURLE_OK;
 
-  /* Determine size of new buffer after escaping */
-  escapes = 0;
-  for(i = 0; i < nread; i++)
-    if((unsigned char)buffer[i] == CURL_IAC)
-      escapes++;
-  outlen = nread + escapes;
+  while(!result && nread--) {
+    outbuf[0] = *buffer++;
+    out_count = 1;
+    if(outbuf[0] == CURL_IAC)
+      outbuf[out_count++] = CURL_IAC;
 
-  if(outlen == nread)
-    outbuf = (unsigned char *)buffer;
-  else {
-    outbuf = malloc(nread + escapes + 1);
-    if(!outbuf)
-      return CURLE_OUT_OF_MEMORY;
-
-    j = 0;
-    for(i = 0; i < nread; i++) {
-      outbuf[j++] = buffer[i];
-      if((unsigned char)buffer[i] == CURL_IAC)
-        outbuf[j++] = CURL_IAC;
-    }
-    outbuf[j] = '\0';
+    total_written = 0;
+    do {
+      /* Make sure socket is writable to avoid EWOULDBLOCK condition */
+      struct pollfd pfd[1];
+      pfd[0].fd = conn->sock[FIRSTSOCKET];
+      pfd[0].events = POLLOUT;
+      switch(Curl_poll(pfd, 1, -1)) {
+        case -1:                    /* error, abort writing */
+        case 0:                     /* timeout (will never happen) */
+          result = CURLE_SEND_ERROR;
+          break;
+        default:                    /* write! */
+          bytes_written = 0;
+          result = Curl_write(conn, conn->sock[FIRSTSOCKET],
+                              outbuf+total_written, out_count-total_written,
+                              &bytes_written);
+          total_written += bytes_written;
+          break;
+      }
+      /* handle partial write */
+    } while(!result && total_written < out_count);
   }
-
-  total_written = 0;
-  while(!result && total_written < outlen) {
-    /* Make sure socket is writable to avoid EWOULDBLOCK condition */
-    struct pollfd pfd[1];
-    pfd[0].fd = conn->sock[FIRSTSOCKET];
-    pfd[0].events = POLLOUT;
-    switch(Curl_poll(pfd, 1, -1)) {
-      case -1:                    /* error, abort writing */
-      case 0:                     /* timeout (will never happen) */
-        result = CURLE_SEND_ERROR;
-        break;
-      default:                    /* write! */
-        bytes_written = 0;
-        result = Curl_write(conn, conn->sock[FIRSTSOCKET],
-                            outbuf + total_written,
-                            outlen - total_written,
-                            &bytes_written);
-        total_written += bytes_written;
-        break;
-    }
-  }
-
-  /* Free malloc copy if escaped */
-  if(outbuf != (unsigned char *)buffer)
-    free(outbuf);
-
   return result;
 }
 
@@ -1327,7 +1306,7 @@ static CURLcode telnet_do(struct connectdata *conn, bool *done)
   curl_off_t total_ul = 0;
 #endif
   ssize_t nread;
-  struct curltime now;
+  struct timeval now;
   bool keepon = TRUE;
   char *buf = data->state.buffer;
   struct TELNET *tn;
@@ -1357,14 +1336,14 @@ static CURLcode telnet_do(struct connectdata *conn, bool *done)
   /* load ws2_32.dll and get the function pointers we need. */
   wsock2 = Curl_load_library(TEXT("WS2_32.DLL"));
   if(wsock2 == NULL) {
-    failf(data, "failed to load WS2_32.DLL (%u)", GetLastError());
+    failf(data, "failed to load WS2_32.DLL (%d)", ERRNO);
     return CURLE_FAILED_INIT;
   }
 
   /* Grab a pointer to WSACreateEvent */
   create_event_func = GetProcAddress(wsock2, "WSACreateEvent");
   if(create_event_func == NULL) {
-    failf(data, "failed to find WSACreateEvent function (%u)", GetLastError());
+    failf(data, "failed to find WSACreateEvent function (%d)", ERRNO);
     FreeLibrary(wsock2);
     return CURLE_FAILED_INIT;
   }
@@ -1372,7 +1351,7 @@ static CURLcode telnet_do(struct connectdata *conn, bool *done)
   /* And WSACloseEvent */
   close_event_func = GetProcAddress(wsock2, "WSACloseEvent");
   if(close_event_func == NULL) {
-    failf(data, "failed to find WSACloseEvent function (%u)", GetLastError());
+    failf(data, "failed to find WSACloseEvent function (%d)", ERRNO);
     FreeLibrary(wsock2);
     return CURLE_FAILED_INIT;
   }
@@ -1380,7 +1359,7 @@ static CURLcode telnet_do(struct connectdata *conn, bool *done)
   /* And WSAEventSelect */
   event_select_func = GetProcAddress(wsock2, "WSAEventSelect");
   if(event_select_func == NULL) {
-    failf(data, "failed to find WSAEventSelect function (%u)", GetLastError());
+    failf(data, "failed to find WSAEventSelect function (%d)", ERRNO);
     FreeLibrary(wsock2);
     return CURLE_FAILED_INIT;
   }
@@ -1388,8 +1367,7 @@ static CURLcode telnet_do(struct connectdata *conn, bool *done)
   /* And WSAEnumNetworkEvents */
   enum_netevents_func = GetProcAddress(wsock2, "WSAEnumNetworkEvents");
   if(enum_netevents_func == NULL) {
-    failf(data, "failed to find WSAEnumNetworkEvents function (%u)",
-          GetLastError());
+    failf(data, "failed to find WSAEnumNetworkEvents function (%d)", ERRNO);
     FreeLibrary(wsock2);
     return CURLE_FAILED_INIT;
   }
@@ -1582,7 +1560,7 @@ static CURLcode telnet_do(struct connectdata *conn, bool *done)
 
   /* We called LoadLibrary, so call FreeLibrary */
   if(!FreeLibrary(wsock2))
-    infof(data, "FreeLibrary(wsock2) failed (%u)", GetLastError());
+    infof(data, "FreeLibrary(wsock2) failed (%d)", ERRNO);
 #else
   pfd[0].fd = sockfd;
   pfd[0].events = POLLIN;

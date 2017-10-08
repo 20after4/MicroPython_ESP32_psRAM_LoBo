@@ -49,11 +49,11 @@ Initialy, the display window is set to full screen, and there are methods to set
 
 #### Fonts
 
-8 bit-mapped fornts and one vector 7-segment font are included.
+9 bit-mapped fornts and one vector 7-segment font are included.
 Unlimited number of fonts from file can also be used.
 
 The following font constants are defined and can be used as font arguments: 
-**FONT_Default, FONT_DejaVu18, FONT_Dejavu24, FONT_Ubuntu, FONT_Comic, FONT_Minya, FONT_Tooney, FONT_Small, FONT_7seg**
+**FONT_Default, FONT_DefaultSmall, FONT_DejaVu18, FONT_Dejavu24, FONT_Ubuntu, FONT_Comic, FONT_Minya, FONT_Tooney, FONT_Small, FONT_7seg**
 
 ---
 

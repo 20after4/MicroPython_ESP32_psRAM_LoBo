@@ -807,6 +807,159 @@ extern const mp_obj_type_t network_bluetooth_type;
 #endif
 
 
+#ifdef CONFIG_MICROPY_USE_GSM
+
+#include "libs/libGSM.h"
+
+//-------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mod_network_startGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+{
+    const mp_arg_t allowed_args[] = {
+			{ MP_QSTR_tx,		    MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
+			{ MP_QSTR_rx,		    MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
+			{ MP_QSTR_baudrate,	                      MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = 115200} },
+			{ MP_QSTR_user,                           MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+			{ MP_QSTR_password,                       MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+			{ MP_QSTR_apn,          MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+			{ MP_QSTR_wait,	                          MP_ARG_KW_ONLY  | MP_ARG_BOOL, {.u_bool = false} },
+	};
+	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    char user[GSM_MAX_NAME_LEN] = {0};
+    char pass[GSM_MAX_NAME_LEN] = {0};
+    char apn[GSM_MAX_NAME_LEN] = {0};
+    int rx, tx, bdr, err = 0;
+
+    if (MP_OBJ_IS_STR(args[3].u_obj)) {
+        snprintf(user, GSM_MAX_NAME_LEN, mp_obj_str_get_str(args[3].u_obj));
+    }
+
+	if (MP_OBJ_IS_STR(args[4].u_obj)) {
+    	snprintf(pass, GSM_MAX_NAME_LEN, mp_obj_str_get_str(args[4].u_obj));
+    }
+
+	if (MP_OBJ_IS_STR(args[5].u_obj)) {
+    	snprintf(apn, GSM_MAX_NAME_LEN, mp_obj_str_get_str(args[5].u_obj));
+    }
+	else {
+		err = -10;
+		goto exit;
+	}
+
+    tx = args[0].u_int;
+    rx = args[1].u_int;
+    bdr = args[2].u_int;
+    if ((tx < 0) || (rx < 0)) {
+    	err = -11;
+    	goto exit;
+    }
+
+    int res = ppposInit(tx, rx, bdr, user, pass, apn, args[6].u_bool);
+
+    if (res == 0) return mp_const_true;
+
+exit:
+	printf("Error %d\n", err);
+	return mp_const_false;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_network_startGSM_obj, 0, mod_network_startGSM);
+
+//------------------------------------
+STATIC mp_obj_t mod_network_stateGSM()
+{
+	mp_obj_t tuple[2];
+	char state[20] = {'\0'};
+	int gsm_state = ppposStatus();
+
+	tuple[0] = mp_obj_new_int(gsm_state);
+
+	if (gsm_state == GSM_STATE_DISCONNECTED) sprintf(state, "Disconnected");
+	else if (gsm_state == GSM_STATE_CONNECTED) sprintf(state, "Connected");
+	else if (gsm_state == GSM_STATE_IDLE) sprintf(state, "Idle");
+	else if (gsm_state == GSM_STATE_FIRSTINIT) sprintf(state, "Not started");
+	else sprintf(state, "Unknown");
+	tuple[1] = mp_obj_new_str(state, strlen(state), false);
+
+	return mp_obj_new_tuple(2, tuple);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_stateGSM_obj, mod_network_stateGSM);
+
+//--------------------------------------
+STATIC mp_obj_t mod_network_connectGSM()
+{
+    int res = ppposConnect();
+
+    if (res == 0) return mp_const_true;
+    return mp_const_false;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_network_connectGSM_obj, mod_network_connectGSM);
+
+//------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mod_network_disconnectGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+{
+    const mp_arg_t allowed_args[] = {
+			{ MP_QSTR_endtask,		MP_ARG_BOOL,  {.u_bool = false} },
+			{ MP_QSTR_rfoff,		MP_ARG_BOOL,  {.u_bool = false} },
+	};
+	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    ppposDisconnect(args[0].u_bool, args[1].u_bool);
+
+	return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_network_disconnectGSM_obj, 0, mod_network_disconnectGSM);
+
+//------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mod_network_sendSMS(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+{
+    const mp_arg_t allowed_args[] = {
+			{ MP_QSTR_gsmnum,  MP_ARG_REQUIRED | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+			{ MP_QSTR_msg,     MP_ARG_REQUIRED | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+	};
+	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    char *num = NULL;
+    char *msg = NULL;
+    int res = 0;
+
+    if (MP_OBJ_IS_STR(args[0].u_obj)) {
+        num = (char *)mp_obj_str_get_str(args[0].u_obj);
+    }
+    if (MP_OBJ_IS_STR(args[1].u_obj)) {
+        msg = (char *)mp_obj_str_get_str(args[1].u_obj);
+    }
+    if ((num) && (msg)) {
+    	res = smsSend(num, msg);
+    }
+    if (res) return mp_const_true;
+    return mp_const_false;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_network_sendSMS_obj, 0, mod_network_sendSMS);
+
+
+//============================================================
+STATIC const mp_map_elem_t network_GSM_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_start),		MP_ROM_PTR(&mod_network_startGSM_obj) },
+    { MP_ROM_QSTR(MP_QSTR_status),		MP_ROM_PTR(&mod_network_stateGSM_obj) },
+    { MP_ROM_QSTR(MP_QSTR_disconnect),	MP_ROM_PTR(&mod_network_disconnectGSM_obj) },
+    { MP_ROM_QSTR(MP_QSTR_connect),		MP_ROM_PTR(&mod_network_connectGSM_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sendSMS),		MP_ROM_PTR(&mod_network_sendSMS_obj) },
+};
+STATIC MP_DEFINE_CONST_DICT(network_GSM_locals_dict, network_GSM_locals_dict_table);
+
+//======================================
+const mp_obj_type_t network_GSM_type = {
+    { &mp_type_type },
+    .name = MP_QSTR_GSM,
+    .locals_dict = (mp_obj_t)&network_GSM_locals_dict,
+};
+
+#endif
+
+
 //==============================================================
 STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_network) },
@@ -824,6 +977,9 @@ STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
 	#endif
 	#ifdef CONFIG_MICROPY_USE_BLUETOOTH
     { MP_ROM_QSTR(MP_QSTR_Bluetooth), MP_ROM_PTR(&network_bluetooth_type) },
+	#endif
+	#ifdef CONFIG_MICROPY_USE_GSM
+    { MP_ROM_QSTR(MP_QSTR_GSM), MP_ROM_PTR(&network_GSM_type) },
 	#endif
 
 #if MODNETWORK_INCLUDE_CONSTANTS

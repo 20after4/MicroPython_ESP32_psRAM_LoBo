@@ -86,33 +86,34 @@
 // ##############################################################
 
 // ==== Converts colors to grayscale if 1 =======================
-uint8_t gray_scale;
+extern uint8_t gray_scale;
 
 // ==== Spi clock for reading data from display memory in Hz ====
-uint32_t max_rdclock;
+extern uint32_t max_rdclock;
 
 // ==== Display dimensions in pixels ============================
-int _width;
-int _height;
+extern int _width;
+extern int _height;
 
 // ==== Display type, DISP_TYPE_ILI9488 or DISP_TYPE_ILI9341 ====
-uint8_t tft_disp_type;
+extern uint8_t tft_disp_type;
 
 // ==== Spi device handles for display and touch screen =========
-spi_lobo_device_handle_t disp_spi;
-spi_lobo_device_handle_t ts_spi;
+extern spi_lobo_device_handle_t disp_spi;
+extern spi_lobo_device_handle_t ts_spi;
 
-uint8_t pin_dc;
-int8_t  pin_bckl;
-uint8_t bckl_on;
-int8_t  pin_rst;
+extern uint8_t pin_dc;
+extern int8_t  pin_bckl;
+extern uint8_t bckl_on;
+extern int8_t  pin_rst;
 
-uint8_t _invert_rot;
-uint8_t _rgb_bgr;
+extern uint8_t _invert_rot;
+extern uint8_t _rgb_bgr;
 
 // ##############################################################
 
 
+// 24-bit color type structure
 typedef struct __attribute__((__packed__)) {
 //typedef struct {
 	uint8_t r;

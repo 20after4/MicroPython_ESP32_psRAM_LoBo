@@ -889,7 +889,7 @@ static CURLcode readwrite_upload(struct Curl_easy *data,
           *didwhat &= ~KEEP_SEND;  /* we didn't write anything actually */
 
           /* set a timeout for the multi interface */
-          Curl_expire(data, data->set.expect_100_timeout, EXPIRE_100_TIMEOUT);
+          Curl_expire(data, data->set.expect_100_timeout);
           break;
         }
 
@@ -1139,7 +1139,6 @@ CURLcode Curl_readwrite(struct connectdata *conn,
         /* we've waited long enough, continue anyway */
         k->exp100 = EXP100_SEND_DATA;
         k->keepon |= KEEP_SEND;
-        Curl_expire_done(data, EXPIRE_100_TIMEOUT);
         infof(data, "Done waiting for 100-continue\n");
       }
     }
@@ -1288,13 +1287,6 @@ CURLcode Curl_pretransfer(struct Curl_easy *data)
     failf(data, "No URL set!");
     return CURLE_URL_MALFORMAT;
   }
-  /* since the URL may have been redirected in a previous use of this handle */
-  if(data->change.url_alloc) {
-    /* the already set URL is allocated, free it first! */
-    Curl_safefree(data->change.url);
-    data->change.url_alloc = FALSE;
-  }
-  data->change.url = data->set.str[STRING_SET_URL];
 
   /* Init the SSL session ID cache here. We do it here since we want to do it
      after the *_setopt() calls (that could specify the size of the cache) but
@@ -1316,11 +1308,8 @@ CURLcode Curl_pretransfer(struct Curl_easy *data)
 
   if(data->set.httpreq == HTTPREQ_PUT)
     data->state.infilesize = data->set.filesize;
-  else {
+  else
     data->state.infilesize = data->set.postfieldsize;
-    if(data->set.postfields && (data->state.infilesize == -1))
-      data->state.infilesize = (curl_off_t)strlen(data->set.postfields);
-  }
 
   /* If there is a list of cookie files to read, do it now! */
   if(data->change.cookielist)
@@ -1349,10 +1338,10 @@ CURLcode Curl_pretransfer(struct Curl_easy *data)
     Curl_pgrsStartNow(data);
 
     if(data->set.timeout)
-      Curl_expire(data, data->set.timeout, EXPIRE_TIMEOUT);
+      Curl_expire(data, data->set.timeout);
 
     if(data->set.connecttimeout)
-      Curl_expire(data, data->set.connecttimeout, EXPIRE_CONNECTTIMEOUT);
+      Curl_expire(data, data->set.connecttimeout);
 
     /* In case the handle is re-used and an authentication method was picked
        in the session we need to make sure we only use the one(s) we now
@@ -1391,56 +1380,16 @@ CURLcode Curl_posttransfer(struct Curl_easy *data)
 
 #ifndef CURL_DISABLE_HTTP
 /*
- * Find the separator at the end of the host name, or the '?' in cases like
- * http://www.url.com?id=2380
- */
-static const char *find_host_sep(const char *url)
-{
-  const char *sep;
-  const char *query;
-
-  /* Find the start of the hostname */
-  sep = strstr(url, "//");
-  if(!sep)
-    sep = url;
-  else
-    sep += 2;
-
-  query = strchr(sep, '?');
-  sep = strchr(sep, '/');
-
-  if(!sep)
-    sep = url + strlen(url);
-
-  if(!query)
-    query = url + strlen(url);
-
-  return sep < query ? sep : query;
-}
-
-/*
  * strlen_url() returns the length of the given URL if the spaces within the
  * URL were properly URL encoded.
- * URL encoding should be skipped for host names, otherwise IDN resolution
- * will fail.
  */
-static size_t strlen_url(const char *url, bool relative)
+static size_t strlen_url(const char *url)
 {
   const unsigned char *ptr;
   size_t newlen=0;
   bool left=TRUE; /* left side of the ? */
-  const unsigned char *host_sep = (const unsigned char *) url;
-
-  if(!relative)
-    host_sep = (const unsigned char *) find_host_sep(url);
 
   for(ptr=(unsigned char *)url; *ptr; ptr++) {
-
-    if(ptr < host_sep) {
-      ++newlen;
-      continue;
-    }
-
     switch(*ptr) {
     case '?':
       left=FALSE;
@@ -1463,29 +1412,16 @@ static size_t strlen_url(const char *url, bool relative)
 
 /* strcpy_url() copies a url to a output buffer and URL-encodes the spaces in
  * the source URL accordingly.
- * URL encoding should be skipped for host names, otherwise IDN resolution
- * will fail.
  */
-static void strcpy_url(char *output, const char *url, bool relative)
+static void strcpy_url(char *output, const char *url)
 {
   /* we must add this with whitespace-replacing */
   bool left=TRUE;
   const unsigned char *iptr;
   char *optr = output;
-  const unsigned char *host_sep = (const unsigned char *) url;
-
-  if(!relative)
-    host_sep = (const unsigned char *) find_host_sep(url);
-
   for(iptr = (unsigned char *)url;    /* read from here */
       *iptr;         /* until zero byte */
       iptr++) {
-
-    if(iptr < host_sep) {
-      *optr++ = *iptr;
-      continue;
-    }
-
     switch(*iptr) {
     case '?':
       left=FALSE;
@@ -1541,7 +1477,6 @@ static char *concat_url(const char *base, const char *relurl)
   char *protsep;
   char *pathsep;
   size_t newlen;
-  bool host_changed = FALSE;
 
   const char *useurl = relurl;
   size_t urllen;
@@ -1622,7 +1557,6 @@ static char *concat_url(const char *base, const char *relurl)
       *protsep=0;
       useurl = &relurl[2]; /* we keep the slashes from the original, so we
                               skip the new ones */
-      host_changed = TRUE;
     }
     else {
       /* cut off the original URL from the first slash, or deal with URLs
@@ -1654,7 +1588,7 @@ static char *concat_url(const char *base, const char *relurl)
      letter we replace each space with %20 while it is replaced with '+'
      on the right side of the '?' letter.
   */
-  newlen = strlen_url(useurl, !host_changed);
+  newlen = strlen_url(useurl);
 
   urllen = strlen(url_clone);
 
@@ -1676,7 +1610,7 @@ static char *concat_url(const char *base, const char *relurl)
     newest[urllen++]='/';
 
   /* then append the new piece on the right side */
-  strcpy_url(&newest[urllen], useurl, !host_changed);
+  strcpy_url(&newest[urllen], useurl);
 
   free(url_clone);
 
@@ -1689,7 +1623,9 @@ static char *concat_url(const char *base, const char *relurl)
  * as given by the remote server and set up the new URL to request.
  */
 CURLcode Curl_follow(struct Curl_easy *data,
-                     char *newurl,    /* the Location: string */
+                     char *newurl, /* this 'newurl' is the Location: string,
+                                      and it must be malloc()ed before passed
+                                      here */
                      followtype type) /* see transfer.h */
 {
 #ifdef CURL_DISABLE_HTTP
@@ -1702,36 +1638,33 @@ CURLcode Curl_follow(struct Curl_easy *data,
 
   /* Location: redirect */
   bool disallowport = FALSE;
-  bool reachedmax = FALSE;
 
   if(type == FOLLOW_REDIR) {
     if((data->set.maxredirs != -1) &&
-       (data->set.followlocation >= data->set.maxredirs)) {
-      reachedmax = TRUE;
-      type = FOLLOW_FAKE; /* switch to fake to store the would-be-redirected
-                             to URL */
+        (data->set.followlocation >= data->set.maxredirs)) {
+      failf(data, "Maximum (%ld) redirects followed", data->set.maxredirs);
+      return CURLE_TOO_MANY_REDIRECTS;
     }
-    else {
-      /* mark the next request as a followed location: */
-      data->state.this_is_a_follow = TRUE;
 
-      data->set.followlocation++; /* count location-followers */
+    /* mark the next request as a followed location: */
+    data->state.this_is_a_follow = TRUE;
 
-      if(data->set.http_auto_referer) {
-        /* We are asked to automatically set the previous URL as the referer
-           when we get the next URL. We pick the ->url field, which may or may
-           not be 100% correct */
+    data->set.followlocation++; /* count location-followers */
 
-        if(data->change.referer_alloc) {
-          Curl_safefree(data->change.referer);
-          data->change.referer_alloc = FALSE;
-        }
+    if(data->set.http_auto_referer) {
+      /* We are asked to automatically set the previous URL as the referer
+         when we get the next URL. We pick the ->url field, which may or may
+         not be 100% correct */
 
-        data->change.referer = strdup(data->change.url);
-        if(!data->change.referer)
-          return CURLE_OUT_OF_MEMORY;
-        data->change.referer_alloc = TRUE; /* yes, free this later */
+      if(data->change.referer_alloc) {
+        Curl_safefree(data->change.referer);
+        data->change.referer_alloc = FALSE;
       }
+
+      data->change.referer = strdup(data->change.url);
+      if(!data->change.referer)
+        return CURLE_OUT_OF_MEMORY;
+      data->change.referer_alloc = TRUE; /* yes, free this later */
     }
   }
 
@@ -1743,13 +1676,14 @@ CURLcode Curl_follow(struct Curl_easy *data,
     char *absolute = concat_url(data->change.url, newurl);
     if(!absolute)
       return CURLE_OUT_OF_MEMORY;
+    free(newurl);
     newurl = absolute;
   }
   else {
     /* The new URL MAY contain space or high byte values, that means a mighty
        stupid redirect URL but we still make an effort to do "right". */
     char *newest;
-    size_t newlen = strlen_url(newurl, FALSE);
+    size_t newlen = strlen_url(newurl);
 
     /* This is an absolute URL, don't allow the custom port number */
     disallowport = TRUE;
@@ -1757,8 +1691,9 @@ CURLcode Curl_follow(struct Curl_easy *data,
     newest = malloc(newlen+1); /* get memory for this */
     if(!newest)
       return CURLE_OUT_OF_MEMORY;
+    strcpy_url(newest, newurl); /* create a space-free URL */
 
-    strcpy_url(newest, newurl, FALSE); /* create a space-free URL */
+    free(newurl); /* that was no good */
     newurl = newest; /* use this instead now */
 
   }
@@ -1767,11 +1702,6 @@ CURLcode Curl_follow(struct Curl_easy *data,
     /* we're only figuring out the new url if we would've followed locations
        but now we're done so we can get out! */
     data->info.wouldredirect = newurl;
-
-    if(reachedmax) {
-      failf(data, "Maximum (%ld) redirects followed", data->set.maxredirs);
-      return CURLE_TOO_MANY_REDIRECTS;
-    }
     return CURLE_OK;
   }
 
@@ -1785,6 +1715,7 @@ CURLcode Curl_follow(struct Curl_easy *data,
 
   data->change.url = newurl;
   data->change.url_alloc = TRUE;
+  newurl = NULL; /* don't free! */
 
   infof(data, "Issue another request to this URL: '%s'\n", data->change.url);
 
@@ -2011,7 +1942,7 @@ Curl_setup_transfer(
 
         /* Set a timeout for the multi interface. Add the inaccuracy margin so
            that we don't fire slightly too early and get denied to run. */
-        Curl_expire(data, data->set.expect_100_timeout, EXPIRE_100_TIMEOUT);
+        Curl_expire(data, data->set.expect_100_timeout);
       }
       else {
         if(data->state.expect100header)

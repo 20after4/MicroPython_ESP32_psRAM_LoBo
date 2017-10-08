@@ -16,14 +16,14 @@
 
 
 // Some configuration variables
-uint8_t curl_verbose;   // show detailed info of what curl functions are doing
-uint8_t curl_progress;  // show progress during transfers
-uint16_t curl_timeout;  // curl operations timeout in seconds
-uint32_t curl_maxbytes; // limit download length
-uint8_t curl_initialized;
+extern uint8_t curl_verbose;   // show detailed info of what curl functions are doing
+extern uint8_t curl_progress;  // show progress during transfers
+extern uint16_t curl_timeout;  // curl operations timeout in seconds
+extern uint32_t curl_maxbytes; // limit download length
+extern uint8_t curl_initialized;
 
-int hdr_maxlen;
-int body_maxlen;
+extern int hdr_maxlen;
+extern int body_maxlen;
 
 struct curl_httppost *formpost;
 struct curl_httppost *lastptr;
@@ -86,7 +86,7 @@ int Curl_GET(char *url, char *fname, char *hdr, char *body, int hdrlen, int body
 //=======================================================================
 int Curl_POST(char *url, char *hdr, char *body, int hdrlen, int bodylen);
 
-#ifdef CONFIG_MICROPY_USE_FTP
+#ifdef CONFIG_MICROPY_USE_CURLFTP
 
 /*
  * ------------------------------------------------------------------------------

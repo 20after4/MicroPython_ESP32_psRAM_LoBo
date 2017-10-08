@@ -1,5 +1,5 @@
 /*
- * This file is part of the Micro Python project, http://micropython.org/
+ * This file is part of the MicroPython project, http://micropython.org/
  *
  * The MIT License (MIT)
  *
@@ -44,7 +44,7 @@
 #include "py/stackctrl.h"
 #include "py/gc.h"
 
-#if 0 // print debugging info
+#if MICROPY_DEBUG_VERBOSE // print debugging info
 #define DEBUG_PRINT (1)
 #define DEBUG_printf DEBUG_printf
 #define DEBUG_OP_printf(...) DEBUG_printf(__VA_ARGS__)
@@ -209,7 +209,7 @@ void mp_delete_global(qstr qst) {
     mp_obj_dict_delete(MP_OBJ_FROM_PTR(mp_globals_get()), MP_OBJ_NEW_QSTR(qst));
 }
 
-mp_obj_t mp_unary_op(mp_uint_t op, mp_obj_t arg) {
+mp_obj_t mp_unary_op(mp_unary_op_t op, mp_obj_t arg) {
     DEBUG_OP_printf("unary " UINT_FMT " %p\n", op, arg);
 
     if (op == MP_UNARY_OP_NOT) {
@@ -261,7 +261,7 @@ mp_obj_t mp_unary_op(mp_uint_t op, mp_obj_t arg) {
     }
 }
 
-mp_obj_t mp_binary_op(mp_uint_t op, mp_obj_t lhs, mp_obj_t rhs) {
+mp_obj_t mp_binary_op(mp_binary_op_t op, mp_obj_t lhs, mp_obj_t rhs) {
     DEBUG_OP_printf("binary " UINT_FMT " %p %p\n", op, lhs, rhs);
 
     // TODO correctly distinguish inplace operators for mutable objects
@@ -1038,7 +1038,7 @@ void mp_load_method_maybe(mp_obj_t obj, qstr attr, mp_obj_t *dest) {
     } else if (type->locals_dict != NULL) {
         // generic method lookup
         // this is a lookup in the object (ie not class or type)
-        assert(type->locals_dict->base.type == &mp_type_dict); // Micro Python restriction, for now
+        assert(type->locals_dict->base.type == &mp_type_dict); // MicroPython restriction, for now
         mp_map_t *locals_map = &type->locals_dict->map;
         mp_map_elem_t *elem = mp_map_lookup(locals_map, MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
         if (elem != NULL) {
@@ -1408,7 +1408,7 @@ mp_obj_t mp_parse_compile_execute(mp_lexer_t *lex, mp_parse_input_kind_t parse_i
 
 #endif // MICROPY_ENABLE_COMPILER
 
-NORETURN void *m_malloc_fail(size_t num_bytes) {
+NORETURN void m_malloc_fail(size_t num_bytes) {
     DEBUG_printf("memory allocation failed, allocating %u bytes\n", (uint)num_bytes);
     #if MICROPY_ENABLE_GC
     if (gc_is_locked()) {
@@ -1439,6 +1439,6 @@ NORETURN void mp_raise_OSError(int errno_) {
     nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(errno_)));
 }
 
-NORETURN void mp_not_implemented(const char *msg) {
+NORETURN void mp_raise_NotImplementedError(const char *msg) {
     mp_raise_msg(&mp_type_NotImplementedError, msg);
 }

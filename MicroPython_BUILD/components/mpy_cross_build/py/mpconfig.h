@@ -42,7 +42,7 @@
 #ifdef MP_CONFIGFILE
 #include MP_CONFIGFILE
 #else
-#include <mpconfigport.h>
+#include "mpconfigport.h"
 #endif
 
 // Any options not explicitly set in mpconfigport.h will get default
@@ -371,6 +371,11 @@
 //   mp_parse_node_print
 #ifndef MICROPY_DEBUG_PRINTERS
 #define MICROPY_DEBUG_PRINTERS (0)
+#endif
+
+// Whether to enable all debugging outputs (it will be extremely verbose)
+#ifndef MICROPY_DEBUG_VERBOSE
+#define MICROPY_DEBUG_VERBOSE (0)
 #endif
 
 /*****************************************************************************/
@@ -942,6 +947,11 @@ typedef double mp_float_t;
 // Whether to provide "sys.exit" function
 #ifndef MICROPY_PY_SYS_EXIT
 #define MICROPY_PY_SYS_EXIT (1)
+#endif
+
+// Whether to provide "sys.getsizeof" function
+#ifndef MICROPY_PY_SYS_GETSIZEOF
+#define MICROPY_PY_SYS_GETSIZEOF (0)
 #endif
 
 // Whether to provide sys.{stdin,stdout,stderr} objects

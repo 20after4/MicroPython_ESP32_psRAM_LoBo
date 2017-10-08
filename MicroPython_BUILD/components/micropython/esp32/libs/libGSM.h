@@ -10,6 +10,9 @@
 
 #ifdef CONFIG_MICROPY_USE_GSM
 
+#include <time.h>
+#include <stdint.h>
+
 #define GSM_STATE_DISCONNECTED	0
 #define GSM_STATE_CONNECTED		1
 #define GSM_STATE_IDLE			89
@@ -41,8 +44,8 @@ typedef struct
  * Handle all PPPoS requests
  * Disconnect/Reconnect from/to Internet on user request
  */
-//========================================================================
-int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn);
+//======================================================================================
+int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_t wait);
 
 /*
  * Disconnect from Internet
@@ -52,6 +55,13 @@ int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn);
  */
 //====================================================
 void ppposDisconnect(uint8_t end_task, uint8_t rfoff);
+
+/*
+ * Connect from Internet
+ * If already connected, this function does nothing
+ */
+//=================
+int ppposConnect();
 
 /*
  * Get transmitted and received bytes count

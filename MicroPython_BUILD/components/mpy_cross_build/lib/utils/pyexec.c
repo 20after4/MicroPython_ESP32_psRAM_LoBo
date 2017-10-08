@@ -42,7 +42,7 @@
 #endif
 #include "lib/mp-readline/readline.h"
 #include "lib/utils/pyexec.h"
-#include "genhdr/mpversion.h"
+#include "mpversion.h"
 
 pyexec_mode_kind_t pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
 int pyexec_system_exit = 0;
@@ -331,7 +331,8 @@ raw_repl_reset:
         vstr_reset(&line);
         mp_hal_stdout_tx_str(">");
         for (;;) {
-            int c = mp_hal_stdin_rx_chr();
+            int c = mp_hal_stdin_rx_chr(1000);
+            if (c < 0) continue;
             if (c == CHAR_CTRL_A) {
                 // reset raw REPL
                 goto raw_repl_reset;
@@ -381,7 +382,8 @@ int pyexec_friendly_repl(void) {
 #endif
 
 friendly_repl_reset:
-    mp_hal_stdout_tx_str("MicroPython " MICROPY_GIT_TAG " on " MICROPY_BUILD_DATE "; " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
+
+    mp_hal_stdout_tx_str("MicroPython " MICROPY_GIT_TAG " - " MICROPY_BUILD_DATE " on " MICROPY_HW_BOARD_NAME " with " MICROPY_HW_MCU_NAME "\r\n");
     #if MICROPY_PY_BUILTINS_HELP
     mp_hal_stdout_tx_str("Type \"help()\" for more information.\r\n");
     #endif
@@ -448,7 +450,8 @@ friendly_repl_reset:
             mp_hal_stdout_tx_str("\r\npaste mode; Ctrl-C to cancel, Ctrl-D to finish\r\n=== ");
             vstr_reset(&line);
             for (;;) {
-                char c = mp_hal_stdin_rx_chr();
+                int c = mp_hal_stdin_rx_chr(1000);
+                if (c < 0) continue;
                 if (c == CHAR_CTRL_C) {
                     // cancel everything
                     mp_hal_stdout_tx_str("\r\n");

@@ -125,6 +125,7 @@ STATIC void machine_hw_spi_init_internal(
     	changed |= 0x0200;
     }
     if (cs != self->devcfg.spics_ext_io_num) {
+        gpio_pad_select_gpio(cs);
         self->devcfg.spics_ext_io_num = cs;
     	changed |= 0x0400;
     }
@@ -267,6 +268,9 @@ mp_obj_t machine_hw_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_
     self->base.type = &machine_hw_spi_type;
     self->state = MACHINE_HW_SPI_STATE_NONE;
 
+    memset(&self->buscfg, 0, sizeof(spi_lobo_bus_config_t));
+    memset(&self->devcfg, 0, sizeof(spi_lobo_device_interface_config_t));
+
     self->devcfg.spics_ext_io_num = -1;
     int8_t cs = -1;
     if (args[ARG_cs].u_obj != MP_OBJ_NULL) cs = machine_pin_get_gpio(args[ARG_cs].u_obj);
@@ -349,7 +353,6 @@ STATIC mp_obj_t mp_machine_spi_readinto(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_readinto_obj, 2, 3, mp_machine_spi_readinto);
 
-
 //---------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_write(mp_obj_t self_in, mp_obj_t wr_buf)
 {
@@ -386,15 +389,51 @@ STATIC mp_obj_t mp_machine_spi_write_readinto(mp_obj_t self_in, mp_obj_t wr_buf,
 
     t.length = src.len * 8;
     t.tx_buffer = src.buf;
-    t.rxlength = dest.len;
+    t.rxlength = dest.len * 8;
     t.rx_buffer = dest.buf;
-
 	esp_err_t ret = spi_lobo_transfer_data(self->spi, &t);
 
 	if (ret == ESP_OK) return mp_const_true;
     return mp_const_false;
 }
 MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_write_readinto_obj, mp_machine_spi_write_readinto);
+
+//-----------------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_read_from_mem(mp_obj_t self_in, mp_obj_t addr_in, mp_obj_t len_in)
+{
+    machine_hw_spi_obj_t *self = self_in;
+
+    vstr_t vstr;
+    vstr_init_len(&vstr, mp_obj_get_int(len_in));
+    uint32_t addr = mp_obj_get_int(addr_in);
+
+    memset(vstr.buf, 0, vstr.len);
+
+	spi_lobo_transaction_t t;
+    memset(&t, 0, sizeof(t));  //Zero out the transaction
+
+    t.tx_data[0] = addr & 0xFF;
+    t.tx_data[1] = (addr >> 8) & 0xFF;
+    t.tx_data[2] = (addr >> 16) & 0xFF;
+    t.tx_data[3] = (addr >> 24) & 0xFF;
+    t.length = 32;
+    if (addr <= 0x00FFFFFF) t.length -= 8;
+    if (addr <= 0x0000FFFF) t.length -= 8;
+    if (addr <= 0x000000FF) t.length -= 8;
+
+    t.flags = SPI_TRANS_USE_TXDATA;
+
+    t.rxlength = vstr.len * 8;
+    t.rx_buffer = vstr.buf;
+
+	esp_err_t ret = spi_lobo_transfer_data(self->spi, &t);
+
+	if (ret == ESP_OK) {
+	    return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
+	}
+    return mp_const_false;
+}
+MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_read_from_mem_obj, mp_machine_spi_read_from_mem);
 
 
 //================================================================
@@ -403,6 +442,7 @@ STATIC const mp_rom_map_elem_t machine_spi_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_deinit), (mp_obj_t)&machine_hw_spi_deinit_obj },
     { MP_ROM_QSTR(MP_QSTR_read), (mp_obj_t)&mp_machine_spi_read_obj },
     { MP_ROM_QSTR(MP_QSTR_readinto), (mp_obj_t)&mp_machine_spi_readinto_obj },
+    { MP_ROM_QSTR(MP_QSTR_readfrom_mem), (mp_obj_t)&mp_machine_spi_read_from_mem_obj },
     { MP_ROM_QSTR(MP_QSTR_write), (mp_obj_t)&mp_machine_spi_write_obj },
     { MP_ROM_QSTR(MP_QSTR_write_readinto), (mp_obj_t)&mp_machine_spi_write_readinto_obj },
 

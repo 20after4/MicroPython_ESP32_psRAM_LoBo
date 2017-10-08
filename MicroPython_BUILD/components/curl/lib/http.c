@@ -119,7 +119,6 @@ const struct Curl_handler Curl_handler_http = {
   ZERO_NULL,                            /* perform_getsock */
   ZERO_NULL,                            /* disconnect */
   ZERO_NULL,                            /* readwrite */
-  ZERO_NULL,                            /* connection_check */
   PORT_HTTP,                            /* defport */
   CURLPROTO_HTTP,                       /* protocol */
   PROTOPT_CREDSPERREQUEST               /* flags */
@@ -144,7 +143,6 @@ const struct Curl_handler Curl_handler_https = {
   ZERO_NULL,                            /* perform_getsock */
   ZERO_NULL,                            /* disconnect */
   ZERO_NULL,                            /* readwrite */
-  ZERO_NULL,                            /* connection_check */
   PORT_HTTPS,                           /* defport */
   CURLPROTO_HTTPS,                      /* protocol */
   PROTOPT_SSL | PROTOPT_CREDSPERREQUEST | PROTOPT_ALPN_NPN /* flags */
@@ -421,6 +419,8 @@ static CURLcode http_perhapsrewind(struct connectdata *conn)
     case HTTPREQ_POST:
       if(data->state.infilesize != -1)
         expectsend = data->state.infilesize;
+      else if(data->set.postfields)
+        expectsend = (curl_off_t)strlen(data->set.postfields);
       break;
     case HTTPREQ_PUT:
       if(data->state.infilesize != -1)
@@ -1371,7 +1371,7 @@ CURLcode Curl_http_connect(struct connectdata *conn, bool *done)
   if(CONNECT_FIRSTSOCKET_PROXY_SSL())
     return CURLE_OK; /* wait for HTTPS proxy SSL initialization to complete */
 
-  if(!Curl_connect_complete(conn))
+  if(conn->tunnel_state[FIRSTSOCKET] == TUNNEL_CONNECT)
     /* nothing else to do except wait right now - we're not done here. */
     return CURLE_OK;
 
@@ -1853,9 +1853,6 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
       case HTTPREQ_PUT:
         request = "PUT";
         break;
-      case HTTPREQ_OPTIONS:
-        request = "OPTIONS";
-        break;
       default: /* this should never happen */
       case HTTPREQ_GET:
         request = "GET";
@@ -2271,9 +2268,6 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
   if(result)
     return result;
 
-  if(data->set.str[STRING_TARGET])
-    ppath = data->set.str[STRING_TARGET];
-
   /* url */
   if(paste_ftp_userpwd)
     result = Curl_add_bufferf(req_buffer, "ftp://%s:%s@%s",
@@ -2565,9 +2559,12 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
 
     if(conn->bits.authneg)
       postsize = 0;
-    else
-      /* the size of the post body */
-      postsize = data->state.infilesize;
+    else {
+      /* figure out the size of the postfields */
+      postsize = (data->state.infilesize != -1)?
+        data->state.infilesize:
+        (data->set.postfields? (curl_off_t)strlen(data->set.postfields):-1);
+    }
 
     /* We only set Content-Length and allow a custom Content-Length if
        we don't upload data chunked, as RFC2616 forbids us to set both
@@ -2600,7 +2597,7 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
       data->state.expect100header =
         Curl_compareheader(ptr, "Expect:", "100-continue");
     }
-    else if(postsize > EXPECT_100_THRESHOLD || postsize < 0) {
+    else if(postsize > TINY_INITIAL_POST_SIZE || postsize < 0) {
       result = expect100(data, conn, req_buffer);
       if(result)
         return result;
@@ -2749,7 +2746,6 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
       data->req.upload_done = TRUE;
       data->req.keepon &= ~KEEP_SEND; /* we're done writing */
       data->req.exp100 = EXP100_SEND_DATA; /* already sent */
-      Curl_expire_done(data, EXPIRE_100_TIMEOUT);
     }
   }
 
@@ -3046,7 +3042,6 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
           if(k->exp100 > EXP100_SEND_DATA) {
             k->exp100 = EXP100_SEND_DATA;
             k->keepon |= KEEP_SEND;
-            Curl_expire_done(data, EXPIRE_100_TIMEOUT);
           }
           break;
         case 101:
@@ -3173,7 +3168,6 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
              * request body has been sent we stop sending and mark the
              * connection for closure after we've read the entire response.
              */
-            Curl_expire_done(data, EXPIRE_100_TIMEOUT);
             if(!k->upload_done) {
               if(data->set.http_keep_sending_on_error) {
                 infof(data, "HTTP error before end of send, keep sending\n");
@@ -3322,22 +3316,19 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
          * says. We try to allow any number here, but we cannot make
          * guarantees on future behaviors since it isn't within the protocol.
          */
-        char separator;
         nc = sscanf(HEADER1,
-                    " HTTP/%1d.%1d%c%3d",
+                    " HTTP/%d.%d %d",
                     &httpversion_major,
                     &conn->httpversion,
-                    &separator,
                     &k->httpcode);
 
         if(nc == 1 && httpversion_major == 2 &&
            1 == sscanf(HEADER1, " HTTP/2 %d", &k->httpcode)) {
           conn->httpversion = 0;
-          nc = 4;
-          separator = ' ';
+          nc = 3;
         }
 
-        if((nc==4) && (' ' == separator)) {
+        if(nc==3) {
           conn->httpversion += 10 * httpversion_major;
 
           if(k->upgr101 == UPGR101_RECEIVED) {
@@ -3346,7 +3337,7 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
               infof(data, "Lying server, not serving HTTP/2\n");
           }
         }
-        else if(!nc) {
+        else {
           /* this is the real world, not a Nirvana
              NCSA 1.5.x returns this crap when asked for HTTP/1.1
           */
@@ -3363,10 +3354,6 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
               conn->httpversion = 10;
             }
           }
-        }
-        else {
-          failf(data, "Unsupported HTTP version in response\n");
-          return CURLE_UNSUPPORTED_PROTOCOL;
         }
       }
       else if(conn->handler->protocol & CURLPROTO_RTSP) {
@@ -3486,32 +3473,28 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
     /* Check for Content-Length: header lines to get size */
     if(!k->ignorecl && !data->set.ignorecl &&
        checkprefix("Content-Length:", k->p)) {
-      curl_off_t contentlength;
-      if(!curlx_strtoofft(k->p+15, NULL, 10, &contentlength)) {
-        if(data->set.max_filesize &&
-           contentlength > data->set.max_filesize) {
-          failf(data, "Maximum file size exceeded");
-          return CURLE_FILESIZE_EXCEEDED;
-        }
-        if(contentlength >= 0) {
-          k->size = contentlength;
-          k->maxdownload = k->size;
-          /* we set the progress download size already at this point
-             just to make it easier for apps/callbacks to extract this
-             info as soon as possible */
-          Curl_pgrsSetDownloadSize(data, k->size);
-        }
-        else {
-          /* Negative Content-Length is really odd, and we know it
-             happens for example when older Apache servers send large
-             files */
-          streamclose(conn, "negative content-length");
-          infof(data, "Negative content-length: %" CURL_FORMAT_CURL_OFF_T
-                ", closing after transfer\n", contentlength);
-        }
+      curl_off_t contentlength = curlx_strtoofft(k->p+15, NULL, 10);
+      if(data->set.max_filesize &&
+         contentlength > data->set.max_filesize) {
+        failf(data, "Maximum file size exceeded");
+        return CURLE_FILESIZE_EXCEEDED;
       }
-      else
-        infof(data, "Illegal Content-Length: header\n");
+      if(contentlength >= 0) {
+        k->size = contentlength;
+        k->maxdownload = k->size;
+        /* we set the progress download size already at this point
+           just to make it easier for apps/callbacks to extract this
+           info as soon as possible */
+        Curl_pgrsSetDownloadSize(data, k->size);
+      }
+      else {
+        /* Negative Content-Length is really odd, and we know it
+           happens for example when older Apache servers send large
+           files */
+        streamclose(conn, "negative content-length");
+        infof(data, "Negative content-length: %" CURL_FORMAT_CURL_OFF_T
+              ", closing after transfer\n", contentlength);
+      }
     }
     /* check for Content-Type: header lines to get the MIME-type */
     else if(checkprefix("Content-Type:", k->p)) {
@@ -3686,11 +3669,11 @@ CURLcode Curl_http_readwrite_headers(struct Curl_easy *data,
 
       /* if it truly stopped on a digit */
       if(ISDIGIT(*ptr)) {
-        if(!curlx_strtoofft(ptr, NULL, 10, &k->offset)) {
-          if(data->state.resume_from == k->offset)
-            /* we asked for a resume and we got it */
-            k->content_range = TRUE;
-        }
+        k->offset = curlx_strtoofft(ptr, NULL, 10);
+
+        if(data->state.resume_from == k->offset)
+          /* we asked for a resume and we got it */
+          k->content_range = TRUE;
       }
       else
         data->state.resume_from = 0; /* get everything */

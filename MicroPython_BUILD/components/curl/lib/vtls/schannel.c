@@ -630,8 +630,7 @@ schannel_connect_step2(struct connectdata *conn, int sockindex)
       else
         failf(data, "schannel: next InitializeSecurityContext failed: %s",
               Curl_sspi_strerror(conn, sspi_status));
-      return sspi_status == SEC_E_UNTRUSTED_ROOT ?
-          CURLE_SSL_CACERT_BADFILE : CURLE_SSL_CONNECT_ERROR;
+      return CURLE_SSL_CONNECT_ERROR;
     }
 
     /* check if there was additional remaining encrypted data */

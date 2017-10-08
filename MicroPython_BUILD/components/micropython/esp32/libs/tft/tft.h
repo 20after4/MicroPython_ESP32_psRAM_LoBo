@@ -61,26 +61,26 @@ typedef struct {
 //==========================================================================================
 // ==== Global variables ===================================================================
 //==========================================================================================
-uint8_t   orientation;		// current screen orientation
-uint16_t  font_rotate;   	// current font font_rotate angle (0~395)
-uint8_t   font_transparent;	// if not 0 draw fonts transparent
-uint8_t   font_forceFixed;  // if not zero force drawing proportional fonts with fixed width
-uint8_t   font_buffered_char;
-uint8_t   font_line_space;	// additional spacing between text lines; added to font height
-uint8_t   text_wrap;        // if not 0 wrap long text to the new line, else clip
-color_t   _fg;            	// current foreground color for fonts
-color_t   _bg;            	// current background for non transparent fonts
-dispWin_t dispWin;			// display clip window
-float	  _angleOffset;		// angle offset for arc, polygon and line by angle functions
-uint8_t	  image_debug;		// print debug messages during image decode if set to 1
+extern uint8_t   orientation;		// current screen orientation
+extern uint16_t  font_rotate;   	// current font font_rotate angle (0~395)
+extern uint8_t   font_transparent;	// if not 0 draw fonts transparent
+extern uint8_t   font_forceFixed;   // if not zero force drawing proportional fonts with fixed width
+extern uint8_t   font_buffered_char;
+extern uint8_t   font_line_space;	// additional spacing between text lines; added to font height
+extern uint8_t   text_wrap;         // if not 0 wrap long text to the new line, else clip
+extern color_t   _fg;            	// current foreground color for fonts
+extern color_t   _bg;            	// current background for non transparent fonts
+extern dispWin_t dispWin;			// display clip window
+extern float	  _angleOffset;		// angle offset for arc, polygon and line by angle functions
+extern uint8_t	  image_debug;		// print debug messages during image decode if set to 1
 
-Font cfont;					// Current font structure
+extern Font cfont;					// Current font structure
 
-int	TFT_X;					// X position of the next character after TFT_print() function
-int	TFT_Y;					// Y position of the next character after TFT_print() function
+extern int	TFT_X;					// X position of the next character after TFT_print() function
+extern int	TFT_Y;					// Y position of the next character after TFT_print() function
 
-uint32_t tp_calx;			// touch screen X calibration constant
-uint32_t tp_caly;			// touch screen Y calibration constant
+extern uint32_t tp_calx;			// touch screen X calibration constant
+extern uint32_t tp_caly;			// touch screen Y calibration constant
 // =========================================================================================
 
 
@@ -109,25 +109,25 @@ uint32_t tp_caly;			// touch screen Y calibration constant
 #define MAX_POLIGON_SIDES	60
 
 // === Color names constants ===
-const color_t TFT_BLACK;
-const color_t TFT_NAVY;
-const color_t TFT_DARKGREEN;
-const color_t TFT_DARKCYAN;
-const color_t TFT_MAROON;
-const color_t TFT_PURPLE;
-const color_t TFT_OLIVE;
-const color_t TFT_LIGHTGREY;
-const color_t TFT_DARKGREY;
-const color_t TFT_BLUE;
-const color_t TFT_GREEN;
-const color_t TFT_CYAN;
-const color_t TFT_RED;
-const color_t TFT_MAGENTA;
-const color_t TFT_YELLOW;
-const color_t TFT_WHITE;
-const color_t TFT_ORANGE;
-const color_t TFT_GREENYELLOW;
-const color_t TFT_PINK;
+extern const color_t TFT_BLACK;
+extern const color_t TFT_NAVY;
+extern const color_t TFT_DARKGREEN;
+extern const color_t TFT_DARKCYAN;
+extern const color_t TFT_MAROON;
+extern const color_t TFT_PURPLE;
+extern const color_t TFT_OLIVE;
+extern const color_t TFT_LIGHTGREY;
+extern const color_t TFT_DARKGREY;
+extern const color_t TFT_BLUE;
+extern const color_t TFT_GREEN;
+extern const color_t TFT_CYAN;
+extern const color_t TFT_RED;
+extern const color_t TFT_MAGENTA;
+extern const color_t TFT_YELLOW;
+extern const color_t TFT_WHITE;
+extern const color_t TFT_ORANGE;
+extern const color_t TFT_GREENYELLOW;
+extern const color_t TFT_PINK;
 
 #define iTFT_BLACK       0
 #define iTFT_NAVY        128
@@ -170,8 +170,9 @@ const color_t TFT_PINK;
 #define MINYA24_FONT	5
 #define TOONEY32_FONT	6
 #define SMALL_FONT		7
-#define FONT_7SEG		8
-#define USER_FONT		9  // font will be read from file
+#define DEF_SMALL_FONT	8
+#define FONT_7SEG		9
+#define USER_FONT		10  // font will be read from file
 
 #define IMAGE_TYPE_JPG	1
 #define IMAGE_TYPE_BMP	2

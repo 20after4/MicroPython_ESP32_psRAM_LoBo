@@ -304,7 +304,7 @@ static int ftp_print_eplf_item (char *dest, uint32_t destsize, struct dirent *de
 
     // if file is older than 180 days show dat,month,year else show month, day and time
     if ((buf.st_mtime + FTP_UNIX_SECONDS_180_DAYS) < now) strftime(str_time, 127, "%b %d %Y", tm_info);
-    else strftime(str_time, 127, "%b %d %H:%M", tm_info);
+    else strftime(str_time, 63, "%b %d %H:%M", tm_info);
 
     return snprintf(dest, destsize, "%srw-rw-r--   1 root  root %9u %s %s\r\n", type, (uint32_t)buf.st_size, str_time, de->d_name);
 }
@@ -317,7 +317,7 @@ static int ftp_print_eplf_drive (char *dest, uint32_t destsize, char *name) {
     time(&seconds); // get the time from the RTC
     tm_info = gmtime(&seconds);
     char str_time[64];
-    strftime(str_time, 127, "%b %d %Y", tm_info);
+    strftime(str_time, 63, "%b %d %Y", tm_info);
 
     return snprintf(dest, destsize, "%srw-rw-r--   1 root  root %9u %s %s\r\n", type, 0, str_time, name);
 }

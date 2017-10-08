@@ -35,9 +35,7 @@
 
 #if MICROPY_VFS
 
-#if MICROPY_VFS_FAT
-#include "extmod/vfs_fat.h"
-#endif
+#include "extmod/vfs_native.h"
 
 // path is the path to lookup and *path_out holds the path within the VFS
 // object (starts with / if an absolute path).
@@ -120,15 +118,14 @@ mp_import_stat_t mp_vfs_import_stat(const char *path) {
     if (vfs == MP_VFS_NONE || vfs == MP_VFS_ROOT) {
         return MP_IMPORT_STAT_NO_EXIST;
     }
-    #if MICROPY_VFS_FAT
     // fast paths for known VFS types
-    if (mp_obj_get_type(vfs->obj) == &mp_fat_vfs_type) {
-        return fat_vfs_import_stat(MP_OBJ_TO_PTR(vfs->obj), path_out);
+    if (mp_obj_get_type(vfs->obj) == &mp_native_vfs_type) {
+        return native_vfs_import_stat(MP_OBJ_TO_PTR(vfs->obj), path_out);
     }
-    #endif
     // TODO delegate to vfs.stat() method
     return MP_IMPORT_STAT_NO_EXIST;
 }
+
 
 mp_obj_t mp_vfs_mount(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_readonly, ARG_mkfs };
@@ -227,6 +224,7 @@ mp_obj_t mp_vfs_umount(mp_obj_t mnt_in) {
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(mp_vfs_umount_obj, mp_vfs_umount);
+
 
 // Note: buffering and encoding args are currently ignored
 mp_obj_t mp_vfs_open(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {

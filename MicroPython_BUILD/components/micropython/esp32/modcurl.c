@@ -84,20 +84,10 @@ static void print_curl_info(const mp_print_t *print)
     } else {
         mp_printf(print, "    - LIBZ NOT supported\n");
     }
-    if (data->features & CURL_VERSION_NTLM) {
-        mp_printf(print, "    - NTLM supported\n");
-    } else {
-        mp_printf(print, "    - NTLM NOT supported\n");
-    }
     if (data->features & CURL_VERSION_DEBUG) {
         mp_printf(print, "    - DEBUG supported\n");
     } else {
         mp_printf(print, "    - DEBUG NOT supported\n");
-    }
-    if (data->features & CURL_VERSION_UNIX_SOCKETS) {
-        mp_printf(print, "    - UNIX sockets supported\n");
-    } else {
-        mp_printf(print, "    - UNIX sockets NOT supported\n");
     }
     mp_printf(print, "  Protocols:\n");
     int i=0;
@@ -440,7 +430,7 @@ STATIC mp_obj_t curl_sendmail(size_t n_args, const mp_obj_t *pos_args, mp_map_t 
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(curl_sendmail_obj, 1, curl_sendmail);
 
 
-#ifdef CONFIG_MICROPY_USE_FTP
+#ifdef CONFIG_MICROPY_USE_CURLFTP
 
 //-------------------------------------------------------------------------------------------------------
 STATIC mp_obj_t curl_FTP_helper(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args, uint8_t type)
@@ -545,7 +535,7 @@ STATIC const mp_rom_map_elem_t curl_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get), MP_ROM_PTR(&curl_GET_obj) },
     { MP_ROM_QSTR(MP_QSTR_post), MP_ROM_PTR(&curl_POST_obj) },
     { MP_ROM_QSTR(MP_QSTR_sendmail), MP_ROM_PTR(&curl_sendmail_obj) },
-	#ifdef CONFIG_MICROPY_USE_FTP
+	#ifdef CONFIG_MICROPY_USE_CURLFTP
     { MP_ROM_QSTR(MP_QSTR_ftp_get), MP_ROM_PTR(&curl_FTP_GET_obj) },
     { MP_ROM_QSTR(MP_QSTR_ftp_put), MP_ROM_PTR(&curl_FTP_PUT_obj) },
     { MP_ROM_QSTR(MP_QSTR_ftp_list), MP_ROM_PTR(&curl_FTP_LIST_obj) },

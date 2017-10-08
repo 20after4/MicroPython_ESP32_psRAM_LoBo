@@ -49,6 +49,10 @@
 #include "ringbuf.h"
 #include "mqtt.h"
 
+#include "esp_wifi_types.h"
+#include "tcpip_adapter.h"
+#include "libs/libGSM.h"
+
 const char *MQTT_TAG = "[Mqtt client]";
 
 //----------------------------------------------------------------
@@ -604,7 +608,21 @@ void mqtt_task(void *pvParameters)
 // =================================
 int mqtt_start(mqtt_client *client)
 {
-	client->terminate_mqtt = false;
+	// ==== Check for Internet connection first ====
+    tcpip_adapter_ip_info_t info;
+    tcpip_adapter_get_ip_info(WIFI_IF_STA, &info);
+    if (info.ip.addr == 0) {
+		#ifdef CONFIG_MICROPY_USE_GSM
+    	if (ppposStatus() != GSM_STATE_CONNECTED) {
+    		return -9;
+    	}
+		#else
+		return -9;
+		#endif
+    }
+	// =============================================
+
+    client->terminate_mqtt = false;
 
     uint8_t *rb_buf;
     if (client->settings->xMqttTask != NULL) return -1;

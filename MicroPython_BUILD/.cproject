@@ -113,13 +113,15 @@
 		<buildTargets>
 			<target name="all" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
 				<buildCommand>${PWD}/BUILD.sh</buildCommand>
-				<buildTarget>-j2</buildTarget>
+				<buildArguments/>
+				<buildTarget>-j4</buildTarget>
 				<stopOnError>true</stopOnError>
 				<useDefaultCommand>false</useDefaultCommand>
 				<runAllBuilders>true</runAllBuilders>
 			</target>
 			<target name="flash" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
 				<buildCommand>${PWD}/BUILD.sh</buildCommand>
+				<buildArguments/>
 				<buildTarget>flash</buildTarget>
 				<stopOnError>true</stopOnError>
 				<useDefaultCommand>false</useDefaultCommand>
@@ -127,6 +129,7 @@
 			</target>
 			<target name="clean" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
 				<buildCommand>${PWD}/BUILD.sh</buildCommand>
+				<buildArguments/>
 				<buildTarget>clean</buildTarget>
 				<stopOnError>true</stopOnError>
 				<useDefaultCommand>false</useDefaultCommand>
@@ -134,7 +137,6 @@
 			</target>
 			<target name="all (verbose)" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
 				<buildCommand>${PWD}/BUILD.sh</buildCommand>
-				<buildArguments/>
 				<buildTarget>all verbose</buildTarget>
 				<stopOnError>true</stopOnError>
 				<useDefaultCommand>false</useDefaultCommand>

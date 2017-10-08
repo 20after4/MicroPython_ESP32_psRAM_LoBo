@@ -23,7 +23,6 @@
 /* #define CURL_LIBSSH2_DEBUG */
 
 #include "curl_setup.h"
-#include "curl_config.h"
 
 #ifdef USE_LIBSSH2
 
@@ -114,7 +113,6 @@
         libssh2_sftp_symlink_ex((s), (p), curlx_uztoui(strlen(p)), \
                                 (t), (m), LIBSSH2_SFTP_REALPATH)
 
-
 /* Local functions: */
 static const char *sftp_libssh2_strerror(int err);
 static LIBSSH2_ALLOC_FUNC(my_libssh2_malloc);
@@ -178,7 +176,6 @@ const struct Curl_handler Curl_handler_scp = {
   ssh_perform_getsock,                  /* perform_getsock */
   scp_disconnect,                       /* disconnect */
   ZERO_NULL,                            /* readwrite */
-  ZERO_NULL,                            /* connection_check */
   PORT_SSH,                             /* defport */
   CURLPROTO_SCP,                        /* protocol */
   PROTOPT_DIRLOCK | PROTOPT_CLOSEACTION
@@ -205,7 +202,6 @@ const struct Curl_handler Curl_handler_sftp = {
   ssh_perform_getsock,                  /* perform_getsock */
   sftp_disconnect,                      /* disconnect */
   ZERO_NULL,                            /* readwrite */
-  ZERO_NULL,                            /* connection_check */
   PORT_SSH,                             /* defport */
   CURLPROTO_SFTP,                       /* protocol */
   PROTOPT_DIRLOCK | PROTOPT_CLOSEACTION
@@ -411,6 +407,7 @@ static void state(struct connectdata *conn, sshstate nowstate)
   sshc->state = nowstate;
 }
 
+
 // ==== LoBo ===============================================
 
 int access (const char *file, int type)
@@ -461,6 +458,7 @@ return 0;
 }
 
 // ==== LoBo ===============================================
+
 
 /* figure out the path to work with in this particular request */
 static CURLcode ssh_getworkingpath(struct connectdata *conn,
@@ -1946,7 +1944,7 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
         /* since we don't really wait for anything at this point, we want the
            state machine to move on as soon as possible so we set a very short
            timeout here */
-        Curl_expire(data, 0, EXPIRE_RUN_NOW);
+        Curl_expire(data, 0);
 
         state(conn, SSH_STOP);
       }
@@ -2285,25 +2283,18 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
           curl_off_t from, to;
           char *ptr;
           char *ptr2;
-          CURLofft to_t;
-          CURLofft from_t;
 
-          from_t = curlx_strtoofft(conn->data->state.range, &ptr, 0, &from);
-          if(from_t == CURL_OFFT_FLOW)
-            return CURLE_RANGE_ERROR;
+          from=curlx_strtoofft(conn->data->state.range, &ptr, 0);
           while(*ptr && (ISSPACE(*ptr) || (*ptr=='-')))
             ptr++;
-          to_t = curlx_strtoofft(ptr, &ptr2, 0, &to);
-          if(to_t == CURL_OFFT_FLOW)
-            return CURLE_RANGE_ERROR;
-          if((to_t == CURL_OFFT_INVAL) /* no "to" value given */
+          to=curlx_strtoofft(ptr, &ptr2, 0);
+          if((ptr == ptr2) /* no "to" value given */
              || (to >= size)) {
             to = size - 1;
           }
-          if(from_t) {
+          if(from < 0) {
             /* from is relative to end of file */
-            from = size - to;
-            to = size - 1;
+            from += size;
           }
           if(from > size) {
             failf(data, "Offset (%"
@@ -2877,7 +2868,7 @@ static CURLcode ssh_multi_statemach(struct connectdata *conn, bool *done)
 }
 
 static CURLcode ssh_block_statemach(struct connectdata *conn,
-                                    bool disconnect)
+                                   bool duringconnect)
 {
   struct ssh_conn *sshc = &conn->proto.sshc;
   CURLcode result = CURLE_OK;
@@ -2885,26 +2876,24 @@ static CURLcode ssh_block_statemach(struct connectdata *conn,
 
   while((sshc->state != SSH_STOP) && !result) {
     bool block;
-    time_t left = 1000;
-    struct curltime now = Curl_tvnow();
+    time_t left;
+    struct timeval now = Curl_tvnow();
 
     result = ssh_statemach_act(conn, &block);
     if(result)
       break;
 
-    if(!disconnect) {
-      if(Curl_pgrsUpdate(conn))
-        return CURLE_ABORTED_BY_CALLBACK;
+    if(Curl_pgrsUpdate(conn))
+      return CURLE_ABORTED_BY_CALLBACK;
 
-      result = Curl_speedcheck(data, now);
-      if(result)
-        break;
+    result = Curl_speedcheck(data, now);
+    if(result)
+      break;
 
-      left = Curl_timeleft(data, NULL, FALSE);
-      if(left < 0) {
-        failf(data, "Operation timed out");
-        return CURLE_OPERATION_TIMEDOUT;
-      }
+    left = Curl_timeleft(data, NULL, duringconnect);
+    if(left < 0) {
+      failf(data, "Operation timed out");
+      return CURLE_OPERATION_TIMEDOUT;
     }
 
 #ifdef HAVE_LIBSSH2_SESSION_BLOCK_DIRECTION
@@ -3120,7 +3109,7 @@ static CURLcode scp_disconnect(struct connectdata *conn, bool dead_connection)
 
     state(conn, SSH_SESSION_DISCONNECT);
 
-    result = ssh_block_statemach(conn, TRUE);
+    result = ssh_block_statemach(conn, FALSE);
   }
 
   return result;
@@ -3274,7 +3263,7 @@ static CURLcode sftp_disconnect(struct connectdata *conn, bool dead_connection)
   if(conn->proto.sshc.ssh_session) {
     /* only if there's a session still around to use! */
     state(conn, SSH_SFTP_SHUTDOWN);
-    result = ssh_block_statemach(conn, TRUE);
+    result = ssh_block_statemach(conn, FALSE);
   }
 
   DEBUGF(infof(conn->data, "SSH DISCONNECT is done\n"));

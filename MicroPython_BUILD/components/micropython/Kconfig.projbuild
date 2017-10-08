@@ -184,6 +184,20 @@ menu "MicroPython"
 	        help
 	        Include websockets module into build
 	
+	    config MICROPY_USE_GSM
+	        bool "Use GSM module"
+	        depends on PPP_SUPPORT
+	        default n
+	        help
+	        Include GSM module and PPPoS support into build
+	
+	    config GSM_DEBUG
+	        bool "Enable GSM debug messages"
+	        depends on MICROPY_USE_GSM
+	        default n
+	        help
+	        Enable GSM debug messages
+	
 	    config MICROPY_USE_BLUETOOTH
 	        bool "Use Bluetooth module"
 	        depends on BT_ENABLED && BLUEDROID_ENABLED
@@ -198,12 +212,12 @@ menu "MicroPython"
 	        Include CURL module into build
 	        Using CURLmodule will add ~400KB to your code size
 	
-	    config MICROPY_USE_FTP
+	    config MICROPY_USE_CURLFTP
 	        bool "FTP support in Curl module"
 	        depends on MICROPY_USE_CURL
 	        default n
 	        help
-	        Include Ftp support in Curl module
+	        Include Ftp support in Curl module, not including it may save some flash space
 	
 	    config MICROPY_USE_SSH
 	        bool "Use SSH module"
@@ -216,20 +230,6 @@ menu "MicroPython"
 	        default n
 	        help
 	        Include Mqtt module into build
-	
-	    config MICROPY_USE_GSM
-	        bool "Use GSM module"
-	        depends on PPP_SUPPORT
-	        default n
-	        help
-	        Include GSM module and PPPoS support into build
-	
-	    config GSM_DEBUG
-	        bool "Enable GSM debug messages"
-	        depends on MICROPY_USE_GSM
-	        default n
-	        help
-	        Enable GSM debug messages
 	
 	    menu "MQTT Configuration"
 	        depends on MICROPY_USE_MQTT

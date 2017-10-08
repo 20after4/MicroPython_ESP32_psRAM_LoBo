@@ -7,6 +7,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "libs/espcurl.h"
+#include "libs/libGSM.h"
 
 #include "libssh2.h"
 #include "lwip/err.h"
@@ -28,8 +29,13 @@ uint16_t curl_timeout = 60;      // curl operations timeout in seconds
 uint32_t curl_maxbytes = 300000; // limit download length
 uint8_t curl_initialized = 0;
 
+#if CONFIG_SPIRAM_SUPPORT
 int hdr_maxlen = 1024;
 int body_maxlen = 4096;
+#else
+int hdr_maxlen = 512;
+int body_maxlen = 1024;
+#endif
 
 //--------------------
 void checkConnection()
@@ -37,7 +43,13 @@ void checkConnection()
     tcpip_adapter_ip_info_t info;
     tcpip_adapter_get_ip_info(WIFI_IF_STA, &info);
     if (info.ip.addr == 0) {
-        nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "No Internet connection"));
+		#ifdef CONFIG_MICROPY_USE_GSM
+    	if (ppposStatus() != GSM_STATE_CONNECTED) {
+    		nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "No Internet connection"));
+    	}
+		#else
+		nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "No Internet connection"));
+		#endif
     }
 }
 
@@ -194,6 +206,7 @@ static void _set_default_options(CURL *handle) {
 	curl_easy_setopt(handle, CURLOPT_SSL_VERIFYHOST, 0L);
 	curl_easy_setopt(handle, CURLOPT_PROXY_SSL_VERIFYPEER, 0L);
 	curl_easy_setopt(handle, CURLOPT_PROXY_SSL_VERIFYHOST, 0L);
+	//curl_easy_setopt(handle, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 
 	// ==== Provide CA Certs from different file than default ====
 	//curl_easy_setopt(handle, CURLOPT_CAINFO, "ca-bundle.crt");
@@ -415,7 +428,7 @@ exit:
     return err;
 }
 
-#ifdef CONFIG_MICROPY_USE_FTP
+#ifdef CONFIG_MICROPY_USE_CURLFTP
 
 //===================================================================================================================
 int Curl_FTP(uint8_t upload, char *url, char *user_pass, char *fname, char *hdr, char *body, int hdrlen, int bodylen)

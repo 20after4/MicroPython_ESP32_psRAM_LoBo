@@ -60,12 +60,16 @@ void stdio_obj_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t 
 STATIC mp_uint_t stdio_read(mp_obj_t self_in, void *buf, mp_uint_t size, int *errcode) {
     sys_stdio_obj_t *self = self_in;
     if (self->fd == STDIO_FD_IN) {
+    	int c = -1;
         for (uint i = 0; i < size; i++) {
-            int c = mp_hal_stdin_rx_chr();
+        	while (c < 0) {
+        		c = mp_hal_stdin_rx_chr(1000);
+        	}
             if (c == '\r') {
                 c = '\n';
             }
             ((byte*)buf)[i] = c;
+            c = -1;
         }
         return size;
     } else {
@@ -133,7 +137,11 @@ const sys_stdio_obj_t mp_sys_stderr_obj = {{&stdio_obj_type}, .fd = STDIO_FD_ERR
 #if MICROPY_PY_SYS_STDIO_BUFFER
 STATIC mp_uint_t stdio_buffer_read(mp_obj_t self_in, void *buf, mp_uint_t size, int *errcode) {
     for (uint i = 0; i < size; i++) {
-        ((byte*)buf)[i] = mp_hal_stdin_rx_chr();
+    	int c = -1;
+    	while (c < 0) {
+    		c = mp_hal_stdin_rx_chr(1000);
+    	}
+        ((byte*)buf)[i] = c;
     }
     return size;
 }

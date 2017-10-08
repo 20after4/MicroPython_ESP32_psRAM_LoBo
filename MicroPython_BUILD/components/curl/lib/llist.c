@@ -122,8 +122,7 @@ Curl_llist_remove(struct curl_llist *list, struct curl_llist_element *e,
   --list->size;
 
   /* call the dtor() last for when it actually frees the 'e' memory itself */
-  if(list->dtor)
-    list->dtor(user, ptr);
+  list->dtor(user, ptr);
 }
 
 void

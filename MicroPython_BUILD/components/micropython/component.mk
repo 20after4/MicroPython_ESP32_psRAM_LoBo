@@ -70,6 +70,7 @@ MP_EXTRA_INC += -I$(ESPCOMP)/nghttp/port/include
 MP_EXTRA_INC += -I$(ESPCOMP)/nghttp/nghttp2/lib/includes
 MP_EXTRA_INC += -I$(ESPCOMP)/esp32/include
 MP_EXTRA_INC += -I$(ESPCOMP)/soc/esp32/include
+MP_EXTRA_INC += -I$(ESPCOMP)/soc/include
 MP_EXTRA_INC += -I$(ESPCOMP)/ethernet/include
 MP_EXTRA_INC += -I$(ESPCOMP)/expat/include/expat
 MP_EXTRA_INC += -I$(ESPCOMP)/expat/port/include

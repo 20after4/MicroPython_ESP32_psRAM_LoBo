@@ -64,8 +64,8 @@ typedef struct _display_tft_obj_t {
     uint8_t cs;
     uint8_t dc;
     uint8_t tcs;
-    uint8_t rst;
-    uint8_t bckl;
+    int8_t rst;
+    int8_t bckl;
     uint8_t bckl_on;
     uint8_t invrot;
     uint8_t bgr;
@@ -169,7 +169,7 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     esp_err_t ret;
 
     if (self->spi) {
-    	// deinitialize spi device(s)
+    	// === deinitialize spi device(s) if it was initialized ===
     	if (self->tsspi) {
     		ret = spi_lobo_bus_remove_device(self->tsspi);
     		self->tsspi = NULL;
@@ -182,6 +182,7 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 	    self->spi_speed = 0;
     }
 
+    // === Get arguments ===
     if ((args[ARG_host].u_int != HSPI_HOST) && (args[ARG_host].u_int != VSPI_HOST)) {
         mp_raise_msg(&mp_type_OSError, "Unsupported SPI host");
     }
@@ -194,83 +195,6 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     self->width = args[ARG_width].u_int;   // smaller dimension
 	self->height = args[ARG_height].u_int; // larger dimension
 	self->spi_rdspeed = 8000000;
-
-    // ====  CONFIGURE SPI DEVICES(s)  ====================================================================================
-    gpio_set_direction(args[ARG_miso].u_int, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(args[ARG_miso].u_int, GPIO_PULLUP_ONLY);
-
-    spi_lobo_bus_config_t buscfg = {
-        .miso_io_num = args[ARG_miso].u_int,	// set SPI MISO pin
-        .mosi_io_num = args[ARG_mosi].u_int,	// set SPI MOSI pin
-        .sclk_io_num = args[ARG_clk].u_int,		// set SPI CLK pin
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-		.max_transfer_sz = 6*1024,
-    };
-    spi_lobo_device_interface_config_t devcfg = {
-        .clock_speed_hz = 8000000,              	// Initial clock out at 8 MHz
-        .mode = 0,                           	    // SPI mode 0
-        .spics_io_num = -1,              	        // we will use external CS pin
-		.spics_ext_io_num = args[ARG_cs].u_int,		// external CS pin
-		.flags = SPI_DEVICE_HALFDUPLEX,           	// ALWAYS SET to HALF DUPLEX MODE!! for display spi
-    };
-
-    // ====================================================================================================================
-
-    // ==================================================================
-	// ==== Initialize the SPI bus and attach the LCD to the SPI bus ====
-
-	ret=spi_lobo_bus_add_device(args[ARG_host].u_int, &buscfg, &devcfg, &self->spi);
-	if (ret != ESP_OK) {
-		self->spi = NULL;
-        mp_raise_msg(&mp_type_OSError, "error adding spi device");
-	}
-
-	// ==== Test select/deselect ====
-	ret = spi_lobo_device_select(self->spi, 1);
-	if (ret != ESP_OK) {
-        mp_raise_msg(&mp_type_OSError, "error selecting spi display device");
-	}
-	ret = spi_lobo_device_deselect(self->spi);
-
-    if (args[ARG_hastouch].u_bool) {
-		spi_lobo_device_interface_config_t tsdevcfg = {
-			.clock_speed_hz = 2500000,              // Clock out at 2.5 MHz
-			.mode = 0,                              // SPI mode 2
-			.spics_io_num = args[ARG_tcs].u_int,    // Touch CS pin
-			.spics_ext_io_num = -1,                 // Not using the external CS
-			.command_bits = 8,                      // 1 byte command
-		};
-		ret=spi_lobo_bus_add_device(args[ARG_host].u_int, &buscfg, &tsdevcfg, &self->tsspi);
-		if (ret != ESP_OK) {
-	    	ts_spi = NULL;
-			self->tsspi = NULL;
-			// also remove display spi device
-			ret = spi_lobo_bus_remove_device(self->spi);
-			self->spi = NULL;
-			disp_spi = NULL;
-			self->type = -1;
-		    self->spi_speed = 0;
-	        mp_raise_msg(&mp_type_OSError, "error adding spi touch device");
-		}
-
-		// ==== Test select/deselect ====
-		ret = spi_lobo_device_select(self->tsspi, 1);
-		if (ret != ESP_OK) {
-	    	ts_spi = NULL;
-			self->tsspi = NULL;
-	        mp_raise_msg(&mp_type_OSError, "error selecting spi touch device");
-		}
-		else {
-			ret = spi_lobo_device_deselect(self->tsspi);
-		}
-	    self->tcs = args[ARG_tcs].u_int;
-    }
-    else {
-    	ts_spi = NULL;
-    	self->tsspi = NULL;
-    }
-
     if (args[ARG_invrot].u_int >= 0) self->invrot = args[ARG_invrot].u_int;
     else {
     	if ((self->type == DISP_TYPE_ST7789V) ||
@@ -292,6 +216,103 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     self->clk = args[ARG_clk].u_int;
     self->cs = args[ARG_cs].u_int;
 	self->dc = args[ARG_dc].u_int;
+
+	self->tcs = args[ARG_tcs].u_int;
+
+	// === Configure pins ===
+    // Route all used pins to GPIO control (some pins may initially be routed to other devices)
+    gpio_pad_select_gpio(self->cs);
+    gpio_pad_select_gpio(self->miso);
+    gpio_pad_select_gpio(self->mosi);
+    gpio_pad_select_gpio(self->clk);
+    gpio_pad_select_gpio(self->dc);
+    if (self->rst >= 0) {
+    	gpio_pad_select_gpio(self->rst);
+        gpio_set_direction(self->rst, GPIO_MODE_OUTPUT);
+        gpio_set_level(self->rst, 0);
+    }
+    if (self->bckl >= 0) {
+    	gpio_pad_select_gpio(self->bckl);
+        gpio_set_direction(self->bckl, GPIO_MODE_OUTPUT);
+        gpio_set_level(self->bckl, (self->bckl_on & 1) ^ 1);
+    }
+
+    gpio_set_direction(self->miso, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(self->miso, GPIO_PULLUP_ONLY);
+    gpio_set_direction(self->cs, GPIO_MODE_OUTPUT);
+    gpio_set_direction(self->mosi, GPIO_MODE_OUTPUT);
+    gpio_set_direction(self->clk, GPIO_MODE_OUTPUT);
+    gpio_set_direction(self->dc, GPIO_MODE_OUTPUT);
+    gpio_set_level(self->dc, 0);
+    gpio_set_level(self->cs, 1);
+
+    // ====  CONFIGURE SPI DEVICES(s)  ====================================================================================
+
+    spi_lobo_bus_config_t buscfg = {
+        .miso_io_num = self->miso,	// set SPI MISO pin
+        .mosi_io_num = self->mosi,	// set SPI MOSI pin
+        .sclk_io_num = self->clk,		// set SPI CLK pin
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+		.max_transfer_sz = 6*1024,
+    };
+    spi_lobo_device_interface_config_t devcfg = {
+        .clock_speed_hz = 8000000,          // Initial spi clock at 8 MHz
+        .mode = 0,                          // SPI mode 0
+        .spics_io_num = -1,              	// we will use external CS pin
+		.spics_ext_io_num = self->cs,		// external CS pin
+		.flags = SPI_DEVICE_HALFDUPLEX,     // ALWAYS SET to HALF DUPLEX MODE!! for display spi
+    };
+
+    // ====================================================================================================================
+
+    // ==================================================================
+	// ==== Initialize the SPI bus and attach the LCD to the SPI bus ====
+
+	ret=spi_lobo_bus_add_device(args[ARG_host].u_int, &buscfg, &devcfg, &self->spi);
+	if (ret != ESP_OK) {
+		self->spi = NULL;
+        mp_raise_msg(&mp_type_OSError, "error adding spi device");
+	}
+
+	// ==== Test display select/deselect ====
+	ret = spi_lobo_device_select(self->spi, 1);
+	if (ret != ESP_OK) {
+        mp_raise_msg(&mp_type_OSError, "error selecting spi display device");
+	}
+	ret = spi_lobo_device_deselect(self->spi);
+
+    if (args[ARG_hastouch].u_bool) {
+    	// === If touch is used, add it to the bus ===
+        gpio_pad_select_gpio(self->tcs);
+        gpio_set_direction(self->tcs, GPIO_MODE_OUTPUT);
+        gpio_set_level(self->tcs, 1);
+
+        spi_lobo_device_interface_config_t tsdevcfg = {
+			.clock_speed_hz = 2500000,    // Clock out at 2.5 MHz
+			.mode = 0,                    // SPI mode 0
+			.spics_io_num = self->tcs,    // Touch CS pin
+			.spics_ext_io_num = -1,       // Not using the external CS
+			.command_bits = 8,            // 1 byte command
+		};
+		ret=spi_lobo_bus_add_device(args[ARG_host].u_int, &buscfg, &tsdevcfg, &self->tsspi);
+		if (ret != ESP_OK) {
+	    	ts_spi = NULL;
+			self->tsspi = NULL;
+		}
+
+		// ==== Test select/deselect ====
+		ret = spi_lobo_device_select(self->tsspi, 1);
+		if (ret != ESP_OK) {
+	    	ts_spi = NULL;
+			self->tsspi = NULL;
+		}
+		else spi_lobo_device_deselect(self->tsspi);
+    }
+    else {
+    	ts_spi = NULL;
+    	self->tsspi = NULL;
+    }
 
     // ================================
 	// ==== Initialize the Display ====
@@ -1244,6 +1265,7 @@ STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_FONT_Minya), MP_ROM_INT(MINYA24_FONT) },
     { MP_ROM_QSTR(MP_QSTR_FONT_Tooney), MP_ROM_INT(TOONEY32_FONT) },
     { MP_ROM_QSTR(MP_QSTR_FONT_Small), MP_ROM_INT(SMALL_FONT) },
+    { MP_ROM_QSTR(MP_QSTR_FONT_DefaultSmall), MP_ROM_INT(DEF_SMALL_FONT) },
     { MP_ROM_QSTR(MP_QSTR_FONT_7seg), MP_ROM_INT(FONT_7SEG) },
 
 	{ MP_ROM_QSTR(MP_QSTR_BLACK), MP_ROM_INT(iTFT_BLACK) },

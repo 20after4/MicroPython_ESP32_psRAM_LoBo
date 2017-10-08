@@ -78,7 +78,7 @@
 #endif
 
 #if defined(THREADING_SUPPORT)
-static mbedtls_entropy_context ts_entropy;
+static mbedtls_entropy_context entropy;
 
 static int entropy_init_initialized = 0;
 
@@ -142,7 +142,7 @@ static void mbed_debug(void *context, int level, const char *f_name,
 /*
  *  profile
  */
-static const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_fr =
+const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_fr =
 {
   /* Hashes from SHA-1 and above */
   MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA1) |
@@ -258,11 +258,11 @@ mbed_connect_step1(struct connectdata *conn,
   }
 
 #ifdef THREADING_SUPPORT
-  entropy_init_mutex(&ts_entropy);
+  entropy_init_mutex(&entropy);
   mbedtls_ctr_drbg_init(&connssl->ctr_drbg);
 
   ret = mbedtls_ctr_drbg_seed(&connssl->ctr_drbg, entropy_func_mutex,
-                              &ts_entropy, NULL, 0);
+                              &entropy, NULL, 0);
   if(ret) {
 #ifdef MBEDTLS_ERROR_C
     mbedtls_strerror(ret, errorbuf, sizeof(errorbuf));
@@ -442,11 +442,6 @@ mbed_connect_step1(struct connectdata *conn,
 
   mbedtls_ssl_conf_ciphersuites(&connssl->config,
                                 mbedtls_ssl_list_ciphersuites());
-
-#if defined(MBEDTLS_SSL_RENEGOTIATION)
-  mbedtls_ssl_conf_renegotiation(&connssl->config,
-                                 MBEDTLS_SSL_RENEGOTIATION_ENABLED);
-#endif
 
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
   mbedtls_ssl_conf_session_tickets(&connssl->config,

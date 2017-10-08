@@ -719,8 +719,8 @@ exit:
 	vTaskDelete(NULL);
 }
 
-//=======================================================================
-int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn)
+//=====================================================================================
+int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_t wait)
 {
 	if (pppos_mutex != NULL) xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	do_pppos_connect = 1;
@@ -729,6 +729,7 @@ int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn)
 	if (pppos_mutex != NULL) xSemaphoreGive(pppos_mutex);
 
 	if (task_s == 0) {
+		// PPPoS task not running
 		gsm_pin_tx = tx;
 		gsm_pin_rx = rx;
 		gsm_baudrate = bdr;
@@ -737,14 +738,14 @@ int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn)
 		strncpy(GSM_APN, apn, GSM_MAX_NAME_LEN);
 
 		if (pppos_mutex == NULL) pppos_mutex = xSemaphoreCreateMutex();
-		if (pppos_mutex == NULL) return 0;
+		if (pppos_mutex == NULL) return -1;
 
 		if (tcpip_adapter_initialized == 0) {
 			tcpip_adapter_init();
 			tcpip_adapter_initialized = 1;
 		}
-		xTaskCreatePinnedToCore(&pppos_client_task, "GSM_PPPoS", PPPOS_CLIENT_STACK_SIZE, NULL, CONFIG_MICROPY_TASK_PRIORITY, &PPPoSTaskHandle, MainTaskCore);
-		if (PPPoSTaskHandle == NULL) return 0;
+		xTaskCreatePinnedToCore(&pppos_client_task, "GSM_PPPoS", PPPOS_CLIENT_STACK_SIZE, NULL, CONFIG_MICROPY_TASK_PRIORITY+1, &PPPoSTaskHandle, MainTaskCore);
+		if (PPPoSTaskHandle == NULL) return -2;
 
 		while (task_s == 0) {
 			vTaskDelay(10 / portTICK_RATE_MS);
@@ -753,6 +754,33 @@ int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn)
 			xSemaphoreGive(pppos_mutex);
 		}
 	}
+
+	if (wait == 0) return 0;
+
+	while (gstat != 1) {
+		vTaskDelay(10 / portTICK_RATE_MS);
+		xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
+		gstat = gsm_status;
+		task_s = pppos_task_started;
+		xSemaphoreGive(pppos_mutex);
+		if (task_s == 0) return -3;
+	}
+
+	return 0;
+}
+
+//================
+int ppposConnect()
+{
+	if (pppos_mutex == NULL) return -1;
+	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
+	do_pppos_connect = 1;
+	int gstat = gsm_status;
+	int task_s = pppos_task_started;
+	xSemaphoreGive(pppos_mutex);
+
+	if (task_s == 0) return -2;
+	if (gstat == GSM_STATE_CONNECTED) return 0;
 
 	while (gstat != 1) {
 		vTaskDelay(10 / portTICK_RATE_MS);
@@ -763,15 +791,20 @@ int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn)
 		if (task_s == 0) return 0;
 	}
 
-	return 1;
+	return 0;
 }
 
 //===================================================
 void ppposDisconnect(uint8_t end_task, uint8_t rfoff)
 {
+	if (pppos_mutex == NULL) return;
+
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	int gstat = gsm_status;
+	int task_s = pppos_task_started;
 	xSemaphoreGive(pppos_mutex);
+
+	if (task_s == 0) return;
 
 	if (gstat == GSM_STATE_IDLE) return;
 
@@ -801,6 +834,8 @@ void ppposDisconnect(uint8_t end_task, uint8_t rfoff)
 //===================
 int ppposStatus()
 {
+	if (pppos_mutex == NULL) return GSM_STATE_FIRSTINIT;
+
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	int gstat = gsm_status;
 	xSemaphoreGive(pppos_mutex);
@@ -811,6 +846,11 @@ int ppposStatus()
 //========================================================
 void getRxTxCount(uint32_t *rx, uint32_t *tx, uint8_t rst)
 {
+	if (pppos_mutex == NULL) {
+		*rx = 0;
+		*tx = 0;
+	}
+
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	*rx = pppos_rx_count;
 	*tx = pppos_tx_count;
@@ -824,6 +864,7 @@ void getRxTxCount(uint32_t *rx, uint32_t *tx, uint8_t rst)
 //===================
 void resetRxTxCount()
 {
+	if (pppos_mutex == NULL) return;
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	pppos_rx_count = 0;
 	pppos_tx_count = 0;
@@ -833,6 +874,7 @@ void resetRxTxCount()
 //=============
 int gsm_RFOff()
 {
+	if (pppos_mutex == NULL) return 1;
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	int gstat = gsm_status;
 	xSemaphoreGive(pppos_mutex);
@@ -857,6 +899,7 @@ int gsm_RFOff()
 //============
 int gsm_RFOn()
 {
+	if (pppos_mutex == NULL) return 1;
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	int gstat = gsm_status;
 	xSemaphoreGive(pppos_mutex);
