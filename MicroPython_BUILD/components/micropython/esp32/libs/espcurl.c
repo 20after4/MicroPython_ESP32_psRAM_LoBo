@@ -37,6 +37,7 @@ int hdr_maxlen = 512;
 int body_maxlen = 1024;
 #endif
 
+
 //--------------------
 void checkConnection()
 {
@@ -115,7 +116,7 @@ static size_t curlWrite(void *buffer, size_t size, size_t nmemb, void *userdata)
 				}
 				if ((curl_progress) && ((curtime - s->lastruntime) > curl_progress)) {
 					s->lastruntime = curtime;
-					mp_printf(&mp_plat_print, "* Download: received %d\r\n", s->len);
+					printf("* Download: received %d\r\n", s->len);
 				}
 			}
 		}
@@ -129,7 +130,7 @@ static size_t curlWrite(void *buffer, size_t size, size_t nmemb, void *userdata)
 		else {
 			nwrite = fwrite(buffer, 1, size*nmemb, s->file);
 			if (nwrite <= 0) {
-				mp_printf(&mp_plat_print, "* Download: Error writing to file %d\r\n", nwrite);
+				printf("* Download: Error writing to file %d\r\n", nwrite);
 				return 0;
 			}
 		}
@@ -137,7 +138,7 @@ static size_t curlWrite(void *buffer, size_t size, size_t nmemb, void *userdata)
 		s->len += nwrite;
 		if ((curl_progress) && ((curtime - s->lastruntime) > curl_progress)) {
 			s->lastruntime = curtime;
-			mp_printf(&mp_plat_print, "* Download: received %d\r\n", s->len);
+			printf("* Download: received %d\r\n", s->len);
 		}
 
 		return nwrite;
@@ -172,29 +173,28 @@ static size_t curlRead(void *ptr, size_t size, size_t nmemb, void *userdata)
 	s->len += nread;
 	if ((curl_progress) && ((curtime - s->lastruntime) > curl_progress)) {
 		s->lastruntime = curtime;
-		mp_printf(&mp_plat_print, "* Upload: sent %d\r\n", s->len);
+		printf("* Upload: sent %d\r\n", s->len);
 	}
 
-	//mp_printf(&mp_plat_print, "**Upload, read %d (%d,%d)\r\n", nread,size,nmemb);
+	//printf("**Upload, read %d (%d,%d)\r\n", nread,size,nmemb);
 	if (nread <= 0) return 0;
 
 	return nread;
 }
 
+/*
 //------------------------------------------------------------------
 static int closesocket_callback(void *clientp, curl_socket_t item) {
-    int ret = close(item);
-    if (ret) mp_printf(&mp_plat_print, "== CLOSE socket %d, ret=%d\r\n", item, ret);
+    int ret = lwip_close(item);
     return ret;
 }
 
 //------------------------------------------------------------------------------------------------------------
 static curl_socket_t opensocket_callback(void *clientp, curlsocktype purpose, struct curl_sockaddr *address) {
-    int s = socket(address->family, address->socktype, address->protocol);
-    if (s < 0) mp_printf(&mp_plat_print, "== OPEN socket error %d\r\n", s);
+    int s = lwip_socket(address->family, address->socktype, address->protocol);
     return s;
 }
-
+*/
 
 // Set some common curl options
 //----------------------------------------------
@@ -233,12 +233,12 @@ static void _set_default_options(CURL *handle) {
 	//curl_easy_setopt(handle, CURLOPT_LOW_SPEED_TIME, 4);		//seconds
 
     // Open&Close socket callbacks can be set if special handling is needed
-
+    /*
     curl_easy_setopt(handle, CURLOPT_CLOSESOCKETFUNCTION, closesocket_callback);
     curl_easy_setopt(handle, CURLOPT_CLOSESOCKETDATA, NULL);
     curl_easy_setopt(handle, CURLOPT_OPENSOCKETFUNCTION, opensocket_callback);
     curl_easy_setopt(handle, CURLOPT_OPENSOCKETDATA, NULL);
-
+    */
 }
 
 //==================================================================================
@@ -318,7 +318,7 @@ int Curl_GET(char *url, char *fname, char *hdr, char *body, int hdrlen, int body
     res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-    	if (curl_verbose) mp_printf(&mp_plat_print, "curl_easy_perform failed: %s\r\n", curl_easy_strerror(res));
+    	if (curl_verbose) printf("curl_easy_perform failed: %s\r\n", curl_easy_strerror(res));
 		if (body) snprintf(body, bodylen, "%s", curl_easy_strerror(res));
         err = -7;
         goto exit;
@@ -328,7 +328,7 @@ int Curl_GET(char *url, char *fname, char *hdr, char *body, int hdrlen, int body
     	if (curl_progress) {
 			double curtime = 0;
 			curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &curtime);
-			mp_printf(&mp_plat_print, "* Download: received %d B; time=%0.1f s; speed=%0.1f KB/sec\r\n", get_data.len, curtime, (float)(((get_data.len*10)/curtime) / 10240.0));
+			printf("* Download: received %d B; time=%0.1f s; speed=%0.1f KB/sec\r\n", get_data.len, curtime, (float)(((get_data.len*10)/curtime) / 10240.0));
     	}
 		if (body) {
 			if (strcmp(fname, "simulate") == 0) snprintf(body, bodylen, "SIMULATED save to file; size=%d", get_data.len);
@@ -410,7 +410,7 @@ int Curl_POST(char *url , char *hdr, char *body, int hdrlen, int bodylen)
     res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-    	if (curl_verbose) mp_printf(&mp_plat_print, "curl_easy_perform failed: %s\r\n", curl_easy_strerror(res));
+    	if (curl_verbose) printf("curl_easy_perform failed: %s\r\n", curl_easy_strerror(res));
 		if (body) snprintf(body, bodylen, "%s", curl_easy_strerror(res));
         err = -7;
         goto exit;
@@ -542,7 +542,7 @@ int Curl_FTP(uint8_t upload, char *url, char *user_pass, char *fname, char *hdr,
     res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-    	if (curl_verbose) mp_printf(&mp_plat_print, "curl_easy_perform failed: %s\r\n", curl_easy_strerror(res));
+    	if (curl_verbose) printf("curl_easy_perform failed: %s\r\n", curl_easy_strerror(res));
 		if (body) snprintf(body, bodylen, "%s", curl_easy_strerror(res));
         err = -7;
         goto exit;
@@ -552,9 +552,9 @@ int Curl_FTP(uint8_t upload, char *url, char *user_pass, char *fname, char *hdr,
     	if (curl_progress) {
 			double curtime = 0;
 			curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &curtime);
-			if (upload) mp_printf(&mp_plat_print, "* Upload: sent");
-			else mp_printf(&mp_plat_print, "* Download: received");
-			mp_printf(&mp_plat_print, " %d B; time=%0.1f s; speed=%0.1f KB/sec\r\n", get_data.len, curtime, (float)(((get_data.len*10)/curtime) / 10240.0));
+			if (upload) printf("* Upload: sent");
+			else printf("* Download: received");
+			printf(" %d B; time=%0.1f s; speed=%0.1f KB/sec\r\n", get_data.len, curtime, (float)(((get_data.len*10)/curtime) / 10240.0));
     	}
 
 		if (body) {
@@ -590,6 +590,8 @@ void Curl_cleanup() {
 #endif
 
 #ifdef CONFIG_MICROPY_USE_SSH
+
+#include "libssh2_sftp.h"
 
 // ==== LIBSSH2 functions ====
 
@@ -642,7 +644,7 @@ static int sock_connect(char *server, char *port, char *messages, int msglen)
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
         return -1;
     }
     // Print the resolved IP. Note: inet_ntoa is non-reentrant, look at ipaddr_ntoa_r for "real" code
@@ -651,7 +653,7 @@ static int sock_connect(char *server, char *port, char *messages, int msglen)
     if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
     	strcat(messages, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
 
     // Create the socket
     sock = socket(res->ai_family, res->ai_socktype, 0);
@@ -660,7 +662,7 @@ static int sock_connect(char *server, char *port, char *messages, int msglen)
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
         freeaddrinfo(res);
         return sock;
     }
@@ -671,7 +673,7 @@ static int sock_connect(char *server, char *port, char *messages, int msglen)
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
         freeaddrinfo(res);
         close(sock);
         return -1;
@@ -680,7 +682,7 @@ static int sock_connect(char *server, char *port, char *messages, int msglen)
     if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
     	strcat(messages, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
     freeaddrinfo(res);
 
     return sock;
@@ -701,14 +703,14 @@ static LIBSSH2_SESSION *getSSHSession(int sock, char *username, char *password, 
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
     	return NULL;
     }
     sprintf(msg, "* SSH session created\n");
     if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
     	strcat(messages, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
 
     // ... start it up. This will trade welcome banners, exchange keys, and setup crypto, compression, and MAC layers
     rc = libssh2_session_handshake(session, sock);
@@ -717,14 +719,14 @@ static LIBSSH2_SESSION *getSSHSession(int sock, char *username, char *password, 
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
     	return NULL;
     }
     sprintf(msg, "* SSH session established\n");
     if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
     	strcat(messages, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
 
     /* At this point we havn't yet authenticated.  The first thing to do
      * is check the hostkey's fingerprint against our known hosts. Your app
@@ -740,7 +742,7 @@ static LIBSSH2_SESSION *getSSHSession(int sock, char *username, char *password, 
     if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
     	strcat(messages, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
 
     if (auth_pw) {
         // We could authenticate via password
@@ -749,14 +751,14 @@ static LIBSSH2_SESSION *getSSHSession(int sock, char *username, char *password, 
             if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
             	strcat(messages, msg);
             }
-        	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+        	if (curl_verbose) printf(msg);
         	return NULL;
         }
         sprintf(msg,"* Authentication by password succeed.\n");
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
     }
     else {
         // Or by public key
@@ -765,14 +767,14 @@ static LIBSSH2_SESSION *getSSHSession(int sock, char *username, char *password, 
             if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
             	strcat(messages, msg);
             }
-        	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+        	if (curl_verbose) printf(msg);
         	return NULL;
         }
         sprintf(msg, "* Authentication by public key succeed.\n");
         if ((messages) && ((strlen(messages) + strlen(msg) < msglen))) {
         	strcat(messages, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
     }
 
     return session;
@@ -806,7 +808,7 @@ static int sshDownload(LIBSSH2_CHANNEL *channel, libssh2_struct_stat *fileinfo, 
 							if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 								strcat(hdr, msg);
 							}
-					    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+					    	if (curl_verbose) printf(msg);
 							err = -10;
 						}
         			}
@@ -815,7 +817,7 @@ static int sshDownload(LIBSSH2_CHANNEL *channel, libssh2_struct_stat *fileinfo, 
 						if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 							strcat(hdr, msg);
 						}
-				    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+				    	if (curl_verbose) printf(msg);
         				err = -11;
         			}
         		}
@@ -833,7 +835,7 @@ static int sshDownload(LIBSSH2_CHANNEL *channel, libssh2_struct_stat *fileinfo, 
 						if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 							strcat(hdr, msg);
 						}
-				    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+				    	if (curl_verbose) printf(msg);
 				    	err = -12;
 					}
         		}
@@ -844,31 +846,31 @@ static int sshDownload(LIBSSH2_CHANNEL *channel, libssh2_struct_stat *fileinfo, 
 	        if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 	        	strcat(hdr, msg);
 	        }
-	    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	    	if (curl_verbose) printf(msg);
 	        err = -13;
             break;
         }
         got += rc;
     	if (curl_progress) {
 			if (tlatest == 0) {
-				mp_printf(&mp_plat_print, "\n");
+				printf("\n");
 				tlatest = mp_hal_ticks_ms();
 			}
 			if ((tlatest + (curl_progress*1000)) >= mp_hal_ticks_ms()) {
 				tlatest = mp_hal_ticks_ms();
-				mp_printf(&mp_plat_print, "Download: %u\r", (uint32_t)got);
+				printf("Download: %u\r", (uint32_t)got);
 			}
     	}
     }
     tstart = mp_hal_ticks_ms() - tstart;
 	if (curl_progress) {
-		mp_printf(&mp_plat_print, "                          \r");
+		printf("                          \r");
 	}
     sprintf(msg, "* Received: %u bytes in %0.1f sec (%0.3f KB/s)\n", (uint32_t)got, (float)(tstart / 1000.0), (float)((float)(got)/1024.0/((float)(tstart) / 1000.0)));
     if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
     	strcat(hdr, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
 
     return err;
 }
@@ -899,7 +901,7 @@ static int sshUpload(LIBSSH2_CHANNEL *channel, FILE *fdd, char *hdr, int hdrlen)
 				if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 					strcat(hdr, msg);
 				}
-		    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+		    	if (curl_verbose) printf(msg);
                 break;
             }
             else {
@@ -910,12 +912,12 @@ static int sshUpload(LIBSSH2_CHANNEL *channel, FILE *fdd, char *hdr, int hdrlen)
             }
         	if (curl_progress) {
     			if (tlatest == 0) {
-    				mp_printf(&mp_plat_print, "\n");
+    				printf("\n");
     				tlatest = mp_hal_ticks_ms();
     			}
     			if ((tlatest + (curl_progress*1000)) >= mp_hal_ticks_ms()) {
     				tlatest = mp_hal_ticks_ms();
-    				mp_printf(&mp_plat_print, "Upload: %u\r", sent);
+    				printf("Upload: %u\r", sent);
     			}
         	}
         } while (nread);
@@ -923,13 +925,13 @@ static int sshUpload(LIBSSH2_CHANNEL *channel, FILE *fdd, char *hdr, int hdrlen)
     } while (1);
     tstart = mp_hal_ticks_ms() - tstart;
 	if (curl_progress) {
-		mp_printf(&mp_plat_print, "                          \r");
+		printf("                          \r");
 	}
     sprintf(msg, "* Sent: %u bytes in %0.1f sec (%0.3f KB/s)\n", sent, (float)(tstart / 1000.0), (float)((float)(sent)/1024.0/((float)(tstart) / 1000.0)));
     if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
     	strcat(hdr, msg);
     }
-	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+	if (curl_verbose) printf(msg);
 
     libssh2_channel_send_eof(channel);
     libssh2_channel_wait_eof(channel);
@@ -937,7 +939,6 @@ static int sshUpload(LIBSSH2_CHANNEL *channel, FILE *fdd, char *hdr, int hdrlen)
 
     return err;
 }
-#include "libssh2_sftp.h"
 
 //------------------------------------------------------------------------------------------------------------------------------------------------------
 int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, char *pass, char *fname, char *hdr, char *body, int hdrlen, int bodylen)
@@ -970,7 +971,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 		        if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 		        	strcat(hdr, msg);
 		        }
-		    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+		    	if (curl_verbose) printf(msg);
 	            return -5;
 			}
 		}
@@ -983,7 +984,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
         if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
         	strcat(hdr, msg);
         }
-    	if (curl_verbose) mp_printf(&mp_plat_print, msg);
+    	if (curl_verbose) printf(msg);
         if (fdd) fclose(fdd);
         return -1;
     }
@@ -1017,7 +1018,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
 			rc = -4;
             goto shutdown;
         }
@@ -1032,7 +1033,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
 			rc = -4;
 			goto shutdown;
 		}
@@ -1042,7 +1043,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
 		}
 		// ** Download a file via SCP
 		rc = sshDownload(channel, &fileinfo, fdd, hdr, body, hdrlen, bodylen);
@@ -1060,7 +1061,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
             rc = -1;
             goto endchannel;
         }
@@ -1068,7 +1069,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 		if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 			strcat(hdr, msg);
 		}
-		if (curl_verbose) mp_printf(&mp_plat_print, msg);
+		if (curl_verbose) printf(msg);
 
 		while( (rc = libssh2_channel_exec(channel, scppath)) == LIBSSH2_ERROR_EAGAIN ) {
             waitsocket(sock, session);
@@ -1078,7 +1079,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
             goto endchannel;
         }
         char buffer[1024];
@@ -1115,7 +1116,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
 			rc = -1;
         }
         else {
@@ -1123,7 +1124,7 @@ int ssh_SCP(uint8_t type, char *server, char *port, char * scppath, char *user, 
 			if ((hdr) && ((strlen(hdr) + strlen(msg) < hdrlen))) {
 				strcat(hdr, msg);
 			}
-			if (curl_verbose) mp_printf(&mp_plat_print, msg);
+			if (curl_verbose) printf(msg);
 			rc = exitcode;
         }
     }
@@ -1236,7 +1237,7 @@ shutdown:
 	libssh2_session_free(session);
 	close(sock);
 	libssh2_exit();
-	if (curl_verbose) mp_printf(&mp_plat_print, "All done\n");
+	if (curl_verbose) printf("All done\n");
 
 	return rc;
 }

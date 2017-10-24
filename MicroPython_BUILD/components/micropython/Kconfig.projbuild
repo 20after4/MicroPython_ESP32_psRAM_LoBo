@@ -70,7 +70,7 @@ menu "MicroPython"
 	        range 8 64 if SPIRAM_SUPPORT
 	        default 20
 	        help
-	        Set the size of the MicroPython stack in Kbytes
+	        Set the size of the MicroPython stack in Kbytes.
 	
 	    config MICROPY_HEAP_SIZE
 	        int "MicroPython heap size (KB)"
@@ -80,6 +80,8 @@ menu "MicroPython"
 	        default 2048 if SPIRAM_SUPPORT
 	        help
 	        Set the size of the MicroPython heap in Kbytes
+	        If SPIRAM is not used, heap is allocated from DRAM and setting the heap size too large
+	        may result in insuficient heap for C services like mqtt, gsm, curl... 
 	
 	    config MICROPY_USE_THREADS
 	        bool "Use threads"
@@ -108,9 +110,16 @@ menu "MicroPython"
 	    config MICROPY_USE_TELNET
 	        bool "Enable Telnet server"
 	        depends on MICROPY_USE_THREADS
-	        default y
+	        default n
 	        help
 	        Enable Telnet server and REPL over telnet
+
+	    config MICROPY_USE_WEBSERVER
+	        bool "Enable Web server"
+	        depends on MICROPY_USE_THREADS
+	        default n
+	        help
+	        Enable Web server
 
 	    config MICROPY_USE_FTPSERVER
 	        bool "Enable Ftp server"
@@ -191,13 +200,6 @@ menu "MicroPython"
 	        help
 	        Include GSM module and PPPoS support into build
 	
-	    config GSM_DEBUG
-	        bool "Enable GSM debug messages"
-	        depends on MICROPY_USE_GSM
-	        default n
-	        help
-	        Enable GSM debug messages
-	
 	    config MICROPY_USE_BLUETOOTH
 	        bool "Use Bluetooth module"
 	        depends on BT_ENABLED && BLUEDROID_ENABLED
@@ -211,6 +213,16 @@ menu "MicroPython"
 	        help
 	        Include CURL module into build
 	        Using CURLmodule will add ~400KB to your code size
+	
+	    config MICROPY_USE_CURL_TLS
+	        bool "Enable TLS in Curl module"
+	        depends on MICROPY_USE_CURL
+	        default y if SPIRAM_SUPPORT
+	        default n if !SPIRAM_SUPPORT
+	        help
+	        Enable SSL/TLS in CURL module
+	        TLS support requires more RAM and probably will not work
+	        if more than 64K of MicroPython heap is used without SPIRAM support enabled
 	
 	    config MICROPY_USE_CURLFTP
 	        bool "FTP support in Curl module"

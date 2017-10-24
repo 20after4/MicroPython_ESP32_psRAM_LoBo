@@ -47,6 +47,7 @@
 #include "extmod/machine_mem.h"
 #include "extmod/machine_signal.h"
 #include "extmod/machine_pulse.h"
+#include "extmod/vfs_native.h"
 #include "modmachine.h"
 #include "mpsleep.h"
 #include "machine_rtc.h"
@@ -54,14 +55,37 @@
 
 #if MICROPY_PY_MACHINE
 
+nvs_handle mpy_nvs_handle = 0;
+
 extern machine_rtc_config_t machine_rtc_config;
+
+//--------------------------------------
+static void prepareSleepReset(char *msg)
+{
+    // Umount external & internal fs
+	externalUmount();
+	internalUmount();
+
+    #if MICROPY_PY_THREAD
+    mp_thread_deinit();
+    #endif
+
+    if (msg) mp_hal_stdout_tx_str(msg);
+
+    // deinitialise peripherals
+    machine_pins_deinit();
+
+    mp_deinit();
+    fflush(stdout);
+}
 
 //-----------------------------------------------------------------
 STATIC mp_obj_t machine_freq(size_t n_args, const mp_obj_t *args) {
     if (n_args == 0) {
         // get
         return mp_obj_new_int(ets_get_cpu_frequency() * 1000000);
-    } else {
+    }
+    else {
         // set
         mp_int_t freq = mp_obj_get_int(args[0]) / 1000000;
         if (freq != 80 && freq != 160 && freq != 240) {
@@ -78,7 +102,10 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_freq_obj, 0, 1, machine_freq)
 
 //-----------------------------------
 STATIC mp_obj_t machine_reset(void) {
-    esp_restart();
+    prepareSleepReset(NULL);
+
+    esp_restart(); // This function does not return.
+
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_reset_obj, machine_reset);
@@ -98,6 +125,7 @@ STATIC mp_obj_t machine_idle(void) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(machine_idle_obj, machine_idle);
 
+//-----------------------------------------
 STATIC mp_obj_t machine_disable_irq(void) {
     uint32_t state = MICROPY_BEGIN_ATOMIC_SECTION();
     return mp_obj_new_int(state);
@@ -164,19 +192,9 @@ STATIC mp_obj_t machine_deepsleep(size_t n_args, const mp_obj_t *pos_args, mp_ma
         esp_deep_sleep_enable_touchpad_wakeup();
     }
 
-    #if MICROPY_PY_THREAD
-    mp_thread_deinit();
-    #endif
+    prepareSleepReset("ESP32: DEEP SLEEP\n");
 
-    mp_hal_stdout_tx_str("ESP32: DEEP SLEEP\r\n");
-
-    // deinitialise peripherals
-    machine_pins_deinit();
-
-    mp_deinit();
-    fflush(stdout);
-
-    esp_deep_sleep_start();  // This function does not return.
+    esp_deep_sleep_start(); // This function does not return.
 
     return mp_const_none;
 }
@@ -215,7 +233,6 @@ STATIC mp_obj_t machine_stdin_get (mp_obj_t sz_in, mp_obj_t timeout_in) {
     if (sz == 0) {
         return mp_const_none;
     }
-    int tmo = 0;
     int c = -1;
     vstr_t vstr;
     mp_int_t recv = 0;
@@ -299,46 +316,159 @@ STATIC mp_obj_t machine_random(size_t n_args, const mp_obj_t *args)
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_random_obj, 1, 2, machine_random);
 
 
+// ==== NVS Support ===================================================================
+
+static void checkNVS()
+{
+    if (mpy_nvs_handle == 0) {
+    	mp_raise_msg(&mp_type_OSError, "NVS not available!");
+    }
+}
+
+//------------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_nvs_set_int (mp_obj_t _key, mp_obj_t _value) {
+	checkNVS();
+
+	const char *key = mp_obj_str_get_str(_key);
+    uint32_t value = mp_obj_get_int_truncated(_value);
+
+    esp_err_t esp_err = nvs_set_i32(mpy_nvs_handle, key, value);
+    if (ESP_OK == esp_err) {
+        nvs_commit(mpy_nvs_handle);
+    }
+    else if (ESP_ERR_NVS_NOT_ENOUGH_SPACE == esp_err || ESP_ERR_NVS_PAGE_FULL == esp_err || ESP_ERR_NVS_NO_FREE_PAGES == esp_err) {
+    	mp_raise_msg(&mp_type_OSError, "No space available.");
+    }
+    else if (ESP_ERR_NVS_INVALID_NAME == esp_err || ESP_ERR_NVS_KEY_TOO_LONG == esp_err) {
+    	mp_raise_msg(&mp_type_OSError, "Key invalid or too long");
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mod_machine_nvs_set_int_obj, mod_machine_nvs_set_int);
+
+//-------------------------------------------------------
+STATIC mp_obj_t mod_machine_nvs_get_int (mp_obj_t _key) {
+	checkNVS();
+
+    const char *key = mp_obj_str_get_str(_key);
+    int value = 0;
+
+    if (ESP_ERR_NVS_NOT_FOUND == nvs_get_i32(mpy_nvs_handle, key, &value)) {
+        return mp_const_none;
+    }
+    return mp_obj_new_int(value);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_nvs_get_int_obj, mod_machine_nvs_get_int);
+
+//------------------------------------------------------------------------
+STATIC mp_obj_t mod_machine_nvs_set_str (mp_obj_t _key, mp_obj_t _value) {
+	checkNVS();
+
+	const char *key = mp_obj_str_get_str(_key);
+	const char *value = mp_obj_str_get_str(_value);
+
+    esp_err_t esp_err = nvs_set_str(mpy_nvs_handle, key, value);
+    if (ESP_OK == esp_err) {
+        nvs_commit(mpy_nvs_handle);
+    }
+    else if (ESP_ERR_NVS_NOT_ENOUGH_SPACE == esp_err || ESP_ERR_NVS_PAGE_FULL == esp_err || ESP_ERR_NVS_NO_FREE_PAGES == esp_err) {
+    	mp_raise_msg(&mp_type_OSError, "No space available.");
+    }
+    else if (ESP_ERR_NVS_INVALID_NAME == esp_err || ESP_ERR_NVS_KEY_TOO_LONG == esp_err) {
+    	mp_raise_msg(&mp_type_OSError, "Key invalid or too long");
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mod_machine_nvs_set_str_obj, mod_machine_nvs_set_str);
+
+//-------------------------------------------------------
+STATIC mp_obj_t mod_machine_nvs_get_str (mp_obj_t _key) {
+	checkNVS();
+
+    const char *key = mp_obj_str_get_str(_key);
+    char *value = NULL;
+    size_t len = 0;
+
+    if (ESP_ERR_NVS_NOT_FOUND == nvs_get_str(mpy_nvs_handle, key, value, &len)) {
+        return mp_const_none;
+    }
+    return mp_obj_new_str(value, strlen(value), 0);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_nvs_get_str_obj, mod_machine_nvs_get_str);
+
+//-----------------------------------------------------
+STATIC mp_obj_t mod_machine_nvs_erase (mp_obj_t _key) {
+	checkNVS();
+
+    const char *key = mp_obj_str_get_str(_key);
+
+    if (ESP_ERR_NVS_NOT_FOUND == nvs_erase_key(mpy_nvs_handle, key)) {
+        mp_raise_ValueError("Key not found");
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_nvs_erase_obj, mod_machine_nvs_erase);
+
+//------------------------------------------------
+STATIC mp_obj_t mod_machine_nvs_erase_all (void) {
+	checkNVS();
+
+    if (ESP_OK != nvs_erase_all(mpy_nvs_handle)) {
+    	mp_raise_msg(&mp_type_OSError, "Operation failed.");
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_machine_nvs_erase_all_obj, mod_machine_nvs_erase_all);
+
+
+
 //===============================================================
 STATIC const mp_rom_map_elem_t machine_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_umachine) },
 
-    { MP_ROM_QSTR(MP_QSTR_mem8), MP_ROM_PTR(&machine_mem8_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mem16), MP_ROM_PTR(&machine_mem16_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mem32), MP_ROM_PTR(&machine_mem32_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mem8),					MP_ROM_PTR(&machine_mem8_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mem16),					MP_ROM_PTR(&machine_mem16_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mem32),					MP_ROM_PTR(&machine_mem32_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_freq), MP_ROM_PTR(&machine_freq_obj) },
-    { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&machine_reset_obj) },
-    { MP_ROM_QSTR(MP_QSTR_unique_id), MP_ROM_PTR(&machine_unique_id_obj) },
-    { MP_ROM_QSTR(MP_QSTR_idle), MP_ROM_PTR(&machine_idle_obj) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_deepsleep), MP_ROM_PTR(&machine_deepsleep_obj) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_reason), MP_ROM_PTR(&machine_wake_reason_obj) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_description), MP_ROM_PTR(&machine_wake_desc_obj) },
-    { MP_ROM_QSTR(MP_QSTR_heap_info), MP_ROM_PTR(&machine_heap_info_obj) },
+    { MP_ROM_QSTR(MP_QSTR_freq),					MP_ROM_PTR(&machine_freq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_reset),					MP_ROM_PTR(&machine_reset_obj) },
+    { MP_ROM_QSTR(MP_QSTR_unique_id),				MP_ROM_PTR(&machine_unique_id_obj) },
+    { MP_ROM_QSTR(MP_QSTR_idle),					MP_ROM_PTR(&machine_idle_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_deepsleep),			MP_ROM_PTR(&machine_deepsleep_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_reason),			MP_ROM_PTR(&machine_wake_reason_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_description),	MP_ROM_PTR(&machine_wake_desc_obj) },
+    { MP_ROM_QSTR(MP_QSTR_heap_info),				MP_ROM_PTR(&machine_heap_info_obj) },
 
-	{ MP_ROM_QSTR(MP_QSTR_stdin_get), MP_ROM_PTR(&machine_stdin_get_obj) },
-	{ MP_ROM_QSTR(MP_QSTR_stdout_put), MP_ROM_PTR(&machine_stdout_put_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nvs_setint),			MP_ROM_PTR(&mod_machine_nvs_set_int_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nvs_getint),			MP_ROM_PTR(&mod_machine_nvs_get_int_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nvs_setstr),			MP_ROM_PTR(&mod_machine_nvs_set_str_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nvs_getstr),			MP_ROM_PTR(&mod_machine_nvs_get_str_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nvs_erase),			MP_ROM_PTR(&mod_machine_nvs_erase_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nvs_erase_all),		MP_ROM_PTR(&mod_machine_nvs_erase_all_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_disable_irq), MP_ROM_PTR(&machine_disable_irq_obj) },
-    { MP_ROM_QSTR(MP_QSTR_enable_irq), MP_ROM_PTR(&machine_enable_irq_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_stdin_get),				MP_ROM_PTR(&machine_stdin_get_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_stdout_put),				MP_ROM_PTR(&machine_stdout_put_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_time_pulse_us), MP_ROM_PTR(&machine_time_pulse_us_obj) },
+    { MP_ROM_QSTR(MP_QSTR_disable_irq),				MP_ROM_PTR(&machine_disable_irq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_enable_irq),				MP_ROM_PTR(&machine_enable_irq_obj) },
 
-    { MP_ROM_QSTR(MP_QSTR_random), MP_ROM_PTR(&machine_random_obj) },
+    { MP_ROM_QSTR(MP_QSTR_time_pulse_us),			MP_ROM_PTR(&machine_time_pulse_us_obj) },
 
-	{ MP_ROM_QSTR(MP_QSTR_Timer), MP_ROM_PTR(&machine_timer_type) },
-    { MP_ROM_QSTR(MP_QSTR_Pin), MP_ROM_PTR(&machine_pin_type) },
-    { MP_ROM_QSTR(MP_QSTR_Signal), MP_ROM_PTR(&machine_signal_type) },
-    { MP_ROM_QSTR(MP_QSTR_TouchPad), MP_ROM_PTR(&machine_touchpad_type) },
-    { MP_ROM_QSTR(MP_QSTR_ADC), MP_ROM_PTR(&machine_adc_type) },
-    { MP_ROM_QSTR(MP_QSTR_DAC), MP_ROM_PTR(&machine_dac_type) },
-    { MP_ROM_QSTR(MP_QSTR_I2C), MP_ROM_PTR(&machine_hw_i2c_type) },
-    { MP_ROM_QSTR(MP_QSTR_PWM), MP_ROM_PTR(&machine_pwm_type) },
-    { MP_ROM_QSTR(MP_QSTR_SPI), MP_ROM_PTR(&machine_hw_spi_type) },
-    { MP_ROM_QSTR(MP_QSTR_UART), MP_ROM_PTR(&machine_uart_type) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_RTC), MP_ROM_PTR(&mach_rtc_type) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_Neopixel), MP_ROM_PTR(&machine_neopixel_type) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_DHT), MP_ROM_PTR(&machine_dht_type) },
+    { MP_ROM_QSTR(MP_QSTR_random),					MP_ROM_PTR(&machine_random_obj) },
+
+	{ MP_ROM_QSTR(MP_QSTR_Timer),					MP_ROM_PTR(&machine_timer_type) },
+    { MP_ROM_QSTR(MP_QSTR_Pin),						MP_ROM_PTR(&machine_pin_type) },
+    { MP_ROM_QSTR(MP_QSTR_Signal),					MP_ROM_PTR(&machine_signal_type) },
+    { MP_ROM_QSTR(MP_QSTR_TouchPad),				MP_ROM_PTR(&machine_touchpad_type) },
+    { MP_ROM_QSTR(MP_QSTR_ADC),						MP_ROM_PTR(&machine_adc_type) },
+    { MP_ROM_QSTR(MP_QSTR_DAC),						MP_ROM_PTR(&machine_dac_type) },
+    { MP_ROM_QSTR(MP_QSTR_I2C),						MP_ROM_PTR(&machine_hw_i2c_type) },
+    { MP_ROM_QSTR(MP_QSTR_PWM),						MP_ROM_PTR(&machine_pwm_type) },
+    { MP_ROM_QSTR(MP_QSTR_SPI),						MP_ROM_PTR(&machine_hw_spi_type) },
+    { MP_ROM_QSTR(MP_QSTR_UART),					MP_ROM_PTR(&machine_uart_type) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_RTC),					MP_ROM_PTR(&mach_rtc_type) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_Neopixel),			MP_ROM_PTR(&machine_neopixel_type) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_DHT),					MP_ROM_PTR(&machine_dht_type) },
 };
 STATIC MP_DEFINE_CONST_DICT(machine_module_globals, machine_module_globals_table);
 

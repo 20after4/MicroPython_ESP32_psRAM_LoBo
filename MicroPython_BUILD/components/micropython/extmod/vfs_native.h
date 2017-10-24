@@ -107,4 +107,7 @@ int mount_vfs(int type, char *chdir_to);
 MP_DECLARE_CONST_FUN_OBJ_KW(mp_builtin_open_obj);
 //MP_DECLARE_CONST_FUN_OBJ_2(native_vfs_chdir_obj);
 
+int internalUmount();
+int externalUmount();
+
 mp_obj_t native_vfs_ilistdir2(struct _fs_user_mount_t *vfs, const char *path, bool is_str_type);

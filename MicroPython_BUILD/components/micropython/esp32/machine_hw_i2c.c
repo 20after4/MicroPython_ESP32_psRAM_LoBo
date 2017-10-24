@@ -62,6 +62,7 @@ typedef struct _machine_hw_i2c_obj_t {
     uint8_t scl;
     uint8_t sda;
     int8_t bus_id;
+    i2c_cmd_handle_t cmd;
 } machine_hw_i2c_obj_t;
 
 
@@ -169,7 +170,7 @@ STATIC bool hw_i2c_slave_ping (machine_hw_i2c_obj_t *i2c_obj, uint16_t slave_add
     if (i2c_master_start(cmd) != ESP_OK) goto error;
     if (i2c_master_write_byte(cmd, (slave_addr << 1) | I2C_MASTER_WRITE, I2C_ACK_CHECK_EN) != ESP_OK) goto error;
     if (i2c_master_stop(cmd) != ESP_OK) goto error;
-    ret = i2c_master_cmd_begin(i2c_obj->bus_id, cmd, 5000 / portTICK_RATE_MS);
+    ret = i2c_master_cmd_begin(i2c_obj->bus_id, cmd, 500 / portTICK_RATE_MS);
 
 error:
     i2c_cmd_link_delete(cmd);
@@ -467,6 +468,44 @@ STATIC mp_obj_t machine_hw_i2c_deinit(mp_obj_t self_in) {
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(machine_hw_i2c_deinit_obj, machine_hw_i2c_deinit);
+
+/*
+//------------------------------------------------------
+STATIC mp_obj_t machine_hw_i2c_start(mp_obj_t self_in) {
+    machine_hw_i2c_obj_t *self = self_in;
+
+    if (self->cmd == NULL) {
+        self->cmd = i2c_cmd_link_create();
+    }
+    if (i2c_master_start(self->cmd) != ESP_OK) {
+    	i2c_cmd_link_delete(self->cmd);
+    	self->cmd = NULL;
+        nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "I2C bus error"));
+    }
+
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(machine_hw_i2c_start_obj, machine_hw_i2c_start);
+
+//-----------------------------------------------------
+STATIC mp_obj_t machine_hw_i2c_stop(mp_obj_t self_in) {
+    machine_hw_i2c_obj_t *self = self_in;
+
+    if (self->cmd == NULL) {
+        nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "I2C: stop before start!"));
+    }
+    if (i2c_master_stop(self->cmd) != ESP_OK) {
+    	i2c_cmd_link_delete(self->cmd);
+    	self->cmd = NULL;
+        nlr_raise(mp_obj_new_exception_msg(&mp_type_OSError, "I2C bus error"));
+    }
+	i2c_cmd_link_delete(self->cmd);
+	self->cmd = NULL;
+
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(machine_hw_i2c_stop_obj, machine_hw_i2c_stop);
+*/
 
 //===================================================================
 STATIC const mp_rom_map_elem_t machine_hw_i2c_locals_dict_table[] = {

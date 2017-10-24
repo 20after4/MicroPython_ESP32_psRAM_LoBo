@@ -4,13 +4,16 @@
 
 ---
 
-Clone the MicroPython repository, as it uses some submodules, use --recursive option
+Clone the MicroPython repository
 
 ```
-git clone --recursive https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo.git
+git clone https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo.git
 ```
 
 *Xtensa toolchains and esp-idf are provided as tar archives. They will be automatically unpacked on* **first run** *of* **BUILD.sh** *script*
+
+Note: If running on Windows, you may get false error **unpacking 'esp-idf' FAILED**. Run ./BUILD.sh again, the toolchain will be unpacked successfully.
+
 
 **Goto MicroPython_BUILD directory**
 

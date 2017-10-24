@@ -238,6 +238,13 @@ extern const struct _mp_obj_module_t mp_module_ssh;
 #define BUILTIN_MODULE_SSH
 #endif
 
+#ifdef CONFIG_MICROPY_USE_GSM
+extern const struct _mp_obj_module_t mp_module_gsm;
+#define BUILTIN_MODULE_GSM { MP_OBJ_NEW_QSTR(MP_QSTR_gsm), (mp_obj_t)&mp_module_gsm },
+#else
+#define BUILTIN_MODULE_GSM
+#endif
+
 #define MICROPY_PORT_BUILTIN_MODULES \
     { MP_OBJ_NEW_QSTR(MP_QSTR__onewire), (mp_obj_t)&onewire_module }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_utime), (mp_obj_t)&utime_module }, \
@@ -249,6 +256,7 @@ extern const struct _mp_obj_module_t mp_module_ssh;
     { MP_OBJ_NEW_QSTR(MP_QSTR_display), (mp_obj_t)&mp_module_display }, \
 	BUILTIN_MODULE_CURL \
 	BUILTIN_MODULE_SSH \
+	BUILTIN_MODULE_GSM \
 
 #define MICROPY_PORT_BUILTIN_MODULE_WEAK_LINKS \
     { MP_OBJ_NEW_QSTR(MP_QSTR_binascii), (mp_obj_t)&mp_module_ubinascii }, \

@@ -63,12 +63,15 @@ typedef struct _display_tft_obj_t {
     uint8_t clk;
     uint8_t cs;
     uint8_t dc;
-    uint8_t tcs;
+    int8_t tcs;
     int8_t rst;
     int8_t bckl;
     uint8_t bckl_on;
     uint8_t invrot;
     uint8_t bgr;
+    uint8_t tp_type;
+    uint32_t tp_calx;
+    uint32_t tp_caly;
 } display_tft_obj_t;
 
 STATIC display_tft_obj_t display_tft_obj;
@@ -127,6 +130,9 @@ static int setupDevice(display_tft_obj_t *disp_dev)
 	_invert_rot = disp_dev->invrot;
 	_rgb_bgr = disp_dev->bgr;
 	max_rdclock = disp_dev->spi_rdspeed;
+	tp_type = disp_dev->tp_type;
+	tp_calx = disp_dev->tp_calx;
+	tp_caly = disp_dev->tp_caly;
 	return 0;
 }
 
@@ -154,11 +160,11 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
         { MP_QSTR_clk,       MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = PIN_NUM_CLK } },
         { MP_QSTR_cs,        MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = PIN_NUM_CS } },
         { MP_QSTR_dc,        MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = PIN_NUM_DC } },
-        { MP_QSTR_tcs,                         MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = PIN_NUM_TCS } },
+        { MP_QSTR_tcs,                         MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = -1 } },
         { MP_QSTR_rst_pin,                     MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = -1 } },
         { MP_QSTR_backl_pin,                   MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = -1 } },
         { MP_QSTR_backl_on,                    MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 0 } },
-        { MP_QSTR_hastouch,                    MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = false } },
+        { MP_QSTR_hastouch,                    MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = 0 } },
         { MP_QSTR_invrot,                      MP_ARG_KW_ONLY  | MP_ARG_INT,  { .u_int = -1 } },
         { MP_QSTR_bgr,                         MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = false } },
     };
@@ -186,11 +192,12 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     if ((args[ARG_host].u_int != HSPI_HOST) && (args[ARG_host].u_int != VSPI_HOST)) {
         mp_raise_msg(&mp_type_OSError, "Unsupported SPI host");
     }
-	if ((tft_disp_type < 0) || (tft_disp_type >= DISP_TYPE_MAX)) {
+	if ((args[ARG_type].u_int < 0) || (args[ARG_type].u_int >= DISP_TYPE_MAX)) {
         mp_raise_msg(&mp_type_OSError, "Unsupported display type");
 	}
 
     self->type = args[ARG_type].u_int;
+    self->tp_type = TOUCH_TYPE_NONE;
 
     self->width = args[ARG_width].u_int;   // smaller dimension
 	self->height = args[ARG_height].u_int; // larger dimension
@@ -226,6 +233,11 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     gpio_pad_select_gpio(self->mosi);
     gpio_pad_select_gpio(self->clk);
     gpio_pad_select_gpio(self->dc);
+    if (self->tcs >= 0) {
+    	gpio_pad_select_gpio(self->tcs);
+        gpio_set_direction(self->tcs, GPIO_MODE_OUTPUT);
+        gpio_set_level(self->tcs, 1);
+    }
     if (self->rst >= 0) {
     	gpio_pad_select_gpio(self->rst);
         gpio_set_direction(self->rst, GPIO_MODE_OUTPUT);
@@ -282,36 +294,47 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 	}
 	ret = spi_lobo_device_deselect(self->spi);
 
-    if (args[ARG_hastouch].u_bool) {
-    	// === If touch is used, add it to the bus ===
-        gpio_pad_select_gpio(self->tcs);
-        gpio_set_direction(self->tcs, GPIO_MODE_OUTPUT);
-        gpio_set_level(self->tcs, 1);
+	ts_spi = NULL;
+	self->tsspi = NULL;
+    if ((args[ARG_hastouch].u_int == TOUCH_TYPE_XPT2046) || (args[ARG_hastouch].u_int == TOUCH_TYPE_STMPE610)) {
+    	if (self->tcs >= 0) {
+			// === If touch is used, add it to the bus ===
+			self->tp_calx = TP_CALX_XPT2046;
+			self->tp_caly = TP_CALY_XPT2046;
+			self->tp_type = TOUCH_TYPE_XPT2046;
+			spi_lobo_device_interface_config_t tsdevcfg = {
+					.clock_speed_hz = 2500000,    // Clock out at 2.5 MHz
+					.mode = 0,                    // SPI mode 0
+					.spics_io_num = self->tcs,    // Touch CS pin
+					.spics_ext_io_num = -1,       // Not using the external CS
+					//.command_bits = 8,            // 1 byte command
+				};
+			if (args[ARG_hastouch].u_int == TOUCH_TYPE_STMPE610) {
+				tsdevcfg.clock_speed_hz = 1000000;  // Clock out at 1 MHz
+				tsdevcfg.mode = 1;                  // SPI mode 1
+				self->tp_type = TOUCH_TYPE_STMPE610;
+				self->tp_calx = TP_CALX_STMPE610;
+				self->tp_caly = TP_CALY_STMPE610;
+			}
+			ret=spi_lobo_bus_add_device(args[ARG_host].u_int, &buscfg, &tsdevcfg, &self->tsspi);
+			if (ret != ESP_OK) {
+				ts_spi = NULL;
+				self->tsspi = NULL;
+				self->tp_type = TOUCH_TYPE_NONE;
+			}
 
-        spi_lobo_device_interface_config_t tsdevcfg = {
-			.clock_speed_hz = 2500000,    // Clock out at 2.5 MHz
-			.mode = 0,                    // SPI mode 0
-			.spics_io_num = self->tcs,    // Touch CS pin
-			.spics_ext_io_num = -1,       // Not using the external CS
-			.command_bits = 8,            // 1 byte command
-		};
-		ret=spi_lobo_bus_add_device(args[ARG_host].u_int, &buscfg, &tsdevcfg, &self->tsspi);
-		if (ret != ESP_OK) {
-	    	ts_spi = NULL;
-			self->tsspi = NULL;
-		}
-
-		// ==== Test select/deselect ====
-		ret = spi_lobo_device_select(self->tsspi, 1);
-		if (ret != ESP_OK) {
-	    	ts_spi = NULL;
-			self->tsspi = NULL;
-		}
-		else spi_lobo_device_deselect(self->tsspi);
-    }
-    else {
-    	ts_spi = NULL;
-    	self->tsspi = NULL;
+			// ==== Test select/deselect ====
+			ret = spi_lobo_device_select(self->tsspi, 1);
+			if (ret != ESP_OK) {
+				ts_spi = NULL;
+				self->tsspi = NULL;
+				self->tp_type = TOUCH_TYPE_NONE;
+			}
+			spi_lobo_device_deselect(self->tsspi);
+    	}
+    	else {
+			mp_printf(&mp_plat_print, "Touch panel CS pin not specified, touch not enabled!\n");
+    	}
     }
 
     // ================================
@@ -319,6 +342,9 @@ STATIC mp_obj_t display_tft_init(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 
     setupDevice(self);
 	TFT_display_init();
+	if (self->tp_type == TOUCH_TYPE_STMPE610) {
+		stmpe610_Init();
+	}
 
 	// ==== Set SPI clock used for display operations ====
 	self->spi_speed = spi_lobo_set_speed(self->spi, args[ARG_speed].u_int);
@@ -785,8 +811,8 @@ STATIC mp_obj_t display_tft_setFont(size_t n_args, const mp_obj_t *pos_args, mp_
     const mp_arg_t allowed_args[] = {
         { MP_QSTR_font,         MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
         { MP_QSTR_rotate,       MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = -1 } },
-        { MP_QSTR_transparent,  MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_obj = mp_const_none } },
-        { MP_QSTR_fixedwidth,   MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_obj = mp_const_none } },
+        { MP_QSTR_transparent,  MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = -1 } },
+        { MP_QSTR_fixedwidth,   MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = -1 } },
         { MP_QSTR_dist,         MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = 8 } },
         { MP_QSTR_width,        MP_ARG_KW_ONLY  | MP_ARG_INT, { .u_int = 2 } },
         { MP_QSTR_outline,      MP_ARG_KW_ONLY  | MP_ARG_BOOL, { .u_bool = false } },
@@ -816,8 +842,8 @@ STATIC mp_obj_t display_tft_setFont(size_t n_args, const mp_obj_t *pos_args, mp_
     TFT_setFont(font, font_file);
 
     if (args[1].u_int >= 0) font_rotate = args[1].u_int;
-    if (mp_obj_is_integer(args[2].u_obj)) font_transparent = args[2].u_int;
-    if (mp_obj_is_integer(args[3].u_obj)) font_forceFixed = args[3].u_int;
+    if (args[2].u_int >= 0) font_transparent = args[2].u_int;
+    if (args[3].u_int >= 0) font_forceFixed = args[3].u_int;
 
     if (font == FONT_7SEG) {
         set_7seg_font_atrib(args[4].u_int, args[5].u_int, (int)args[6].u_bool, intToColor(args[7].u_int));
@@ -1201,6 +1227,38 @@ STATIC mp_obj_t display_tft_getWinSize(size_t n_args, const mp_obj_t *pos_args, 
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_getWinSize_obj, 0, display_tft_getWinSize);
 
+//------------------------------------------------------------------------------------------------
+STATIC mp_obj_t display_tft_setCalib(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+
+    const mp_arg_t allowed_args[] = {
+        { MP_QSTR_calx, MP_ARG_INT, { .u_int = 0 } },
+        { MP_QSTR_caly, MP_ARG_INT, { .u_int = 0 } },
+    };
+    display_tft_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+    if (setupDevice(self)) return mp_const_none;
+
+	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    if (self->tp_type == TOUCH_TYPE_NONE) {
+        return mp_const_none;
+    }
+
+    if (args[0].u_int == 0) {
+		if (self->tp_type == TOUCH_TYPE_XPT2046) self->tp_calx = TP_CALX_XPT2046;
+		else self->tp_calx = TP_CALX_STMPE610;
+    }
+    else self->tp_calx = args[0].u_int;
+
+    if (args[0].u_int == 0) {
+		if (self->tp_type == TOUCH_TYPE_XPT2046) self->tp_caly = TP_CALY_XPT2046;
+		else self->tp_caly = TP_CALY_STMPE610;
+    }
+    else self->tp_caly = args[1].u_int;
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(display_tft_setCalib_obj, 0, display_tft_setCalib);
+
 
 
 //================================================================
@@ -1237,6 +1295,7 @@ STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_restorewin), MP_ROM_PTR(&display_tft_restoreclipwin_obj) },
     { MP_ROM_QSTR(MP_QSTR_screensize), MP_ROM_PTR(&display_tft_getSize_obj) },
     { MP_ROM_QSTR(MP_QSTR_winsize), MP_ROM_PTR(&display_tft_getWinSize_obj) },
+    { MP_ROM_QSTR(MP_QSTR_setCalib), MP_ROM_PTR(&display_tft_setCalib_obj) },
 
     // class constants
     { MP_ROM_QSTR(MP_QSTR_ST7789), MP_ROM_INT(DISP_TYPE_ST7789V) },
@@ -1293,6 +1352,10 @@ STATIC const mp_rom_map_elem_t display_tft_locals_dict_table[] = {
 
 	{ MP_ROM_QSTR(MP_QSTR_HSPI), MP_ROM_INT(HSPI_HOST) },
 	{ MP_ROM_QSTR(MP_QSTR_VSPI), MP_ROM_INT(VSPI_HOST) },
+
+	{ MP_ROM_QSTR(MP_QSTR_TOUCH_NONE), MP_ROM_INT(TOUCH_TYPE_NONE) },
+	{ MP_ROM_QSTR(MP_QSTR_TOUCH_XPT), MP_ROM_INT(TOUCH_TYPE_XPT2046) },
+	{ MP_ROM_QSTR(MP_QSTR_TOUCH_STMPE), MP_ROM_INT(TOUCH_TYPE_STMPE610) },
 };
 STATIC MP_DEFINE_CONST_DICT(display_tft_locals_dict, display_tft_locals_dict_table);
 

@@ -44,15 +44,16 @@
 #include "sdkconfig.h"
 #include "esp_attr.h"
 #include "esp_log.h"
-#include "esprtcmem.h"
 #include "rom/ets_sys.h"
 #include "rom/uart.h"
+#include "rom/crc.h"
 #include "soc/soc.h"
 #include "soc/rtc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "mphalport.h"
 
-uint32_t sntp_update_period = 3600000; // in ms
+#define RTC_MEM_INT_SIZE 64
+#define RTC_MEM_STR_SIZE 2048
 
 #define MACHINE_RTC_VALID_EXT_PINS \
 ( \
@@ -78,10 +79,16 @@ uint32_t sntp_update_period = 3600000; // in ms
 
 #define MACHINE_RTC_LAST_EXT_PIN 39
 
+static int RTC_DATA_ATTR rtc_mem_int[RTC_MEM_INT_SIZE] = { 0 };
+static char RTC_DATA_ATTR rtc_mem_str[RTC_MEM_STR_SIZE] = { 0 };
+static uint16_t RTC_DATA_ATTR rtc_mem_int_crc;
+static uint16_t RTC_DATA_ATTR rtc_mem_str_crc;
+
 machine_rtc_config_t machine_rtc_config = { 0, -1, 0, 0, 0 };
+uint32_t sntp_update_period = 3600000; // in ms
 
 
-#define DEFAULT_SNTP_SERVER                     "pool.ntp.org"
+#define DEFAULT_SNTP_SERVER	"pool.ntp.org"
 
 //------------------------------
 typedef struct _mach_rtc_obj_t {
@@ -104,9 +111,19 @@ STATIC void mach_rtc_set_seconds_since_epoch(uint64_t nowus) {
     seconds_at_boot = tv.tv_sec;
 }
 
+//------------------------
+static void rtc_init_mem()
+{
+    memset(rtc_mem_int, 0, sizeof(rtc_mem_int));
+	memset(rtc_mem_str, 0, sizeof(rtc_mem_str));
+	rtc_mem_int_crc = 0;
+	rtc_mem_str_crc = 0;
+}
+
 //--------------------
 void rtc_init0(void) {
     mach_rtc_set_seconds_since_epoch(0);
+    rtc_init_mem();
 }
 
 //---------------------------
@@ -348,77 +365,90 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_rtc_wake_on_ext1_obj, 1, machine_rtc_w
 
 // ====== RTC memory functions ============================
 
-//---------------------------------------------------------------
-STATIC mp_obj_t esp_rtcmem_write_(mp_obj_t _pos, mp_obj_t _val) {
+//--------------------------------------------------------------------------------
+STATIC mp_obj_t esp_rtcmem_write(mp_obj_t self_in, mp_obj_t _pos, mp_obj_t _val) {
 	int pos = mp_obj_get_int(_pos);
 	int val = mp_obj_get_int(_val);
 
-	if (val < 0 || val > 255) {
-		mp_raise_msg(&mp_type_IndexError, "Value out of range");
+	if (pos >= RTC_MEM_INT_SIZE) {
+		//mp_raise_msg(&mp_type_IndexError, "Index out of range");
+		return mp_const_false;
 	}
-	int res = esp_rtcmem_write(pos, val);
-	if (res < 0) {
-		mp_raise_msg(&mp_type_IndexError, "Offset out of range");
-	}
-	return mp_const_none;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(esp_rtcmem_write_obj, esp_rtcmem_write_);
+	rtc_mem_int[pos] = val;
+	// Set CRC
+	rtc_mem_int_crc = crc16_le(0, (uint8_t const *)rtc_mem_int, RTC_MEM_INT_SIZE*sizeof(int));
 
-//-----------------------------------------------
-STATIC mp_obj_t esp_rtcmem_read_(mp_obj_t _pos) {
+	return mp_const_true;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(esp_rtcmem_write_obj, esp_rtcmem_write);
+
+//----------------------------------------------------------------
+STATIC mp_obj_t esp_rtcmem_read(mp_obj_t self_in, mp_obj_t _pos) {
 	int pos = mp_obj_get_int(_pos);
 
-	int val = esp_rtcmem_read(pos);
-	if (val < 0) {
-		mp_raise_msg(&mp_type_IndexError, "Offset out of range");
+	if (pos >= RTC_MEM_INT_SIZE) {
+		//mp_raise_msg(&mp_type_IndexError, "Index out of range");
+		return mp_const_none;
 	}
-	return mp_obj_new_int(val);
+
+	if (rtc_mem_int_crc != crc16_le(0, (uint8_t const *)rtc_mem_int, RTC_MEM_INT_SIZE*sizeof(int))) {
+		return mp_const_none;
+	}
+	return mp_obj_new_int(rtc_mem_int[pos]);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_rtcmem_read_obj, esp_rtcmem_read_);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(esp_rtcmem_read_obj, esp_rtcmem_read);
 
-//-------------------------------------------------------------------------------
-STATIC mp_obj_t esp_rtcmem_read_string_(mp_uint_t n_args, const mp_obj_t *args) {
-	int pos = (n_args == 0) ? 2 : mp_obj_get_int(args[0]);
+//--------------------------------------------------------------------------
+STATIC mp_obj_t esp_rtcmem_write_string(mp_obj_t self_in, mp_obj_t str_in) {
+	const char *str = mp_obj_str_get_str(str_in);
 
-	char str[256];
-	size_t str_len = sizeof(str);
-	int res = esp_rtcmem_read_string(pos, str, &str_len);
-	if (res < 0) {
-		mp_raise_msg(&mp_type_IndexError, "Offset out of range");
+	if (strlen(str) >= RTC_MEM_STR_SIZE) {
+		//mp_raise_msg(&mp_type_ValueError, "String length too big");
+		return mp_const_false;
 	}
-	return mp_obj_new_str(str, str_len-1, true);
+	memset(rtc_mem_str, 0, sizeof(rtc_mem_str));
+	strcpy(rtc_mem_str, str);
+	// Set CRC
+	rtc_mem_str_crc = crc16_le(0, (uint8_t const *)rtc_mem_str, RTC_MEM_STR_SIZE);
+
+	return mp_const_true;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_rtcmem_read_string_obj, 0, 1, esp_rtcmem_read_string_);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(esp_rtcmem_write_string_obj, esp_rtcmem_write_string);
 
-//--------------------------------------------------------------------------------
-STATIC mp_obj_t esp_rtcmem_write_string_(mp_uint_t n_args, const mp_obj_t *args) {
-	const char *str = mp_obj_str_get_str(args[0]);
-	int pos = (n_args == 1) ? 2 : mp_obj_get_int(args[1]);
+//--------------------------------------------------------
+STATIC mp_obj_t esp_rtcmem_read_string(mp_obj_t self_in) {
 
-	int res = esp_rtcmem_write_string(pos, str);
-	if (res < 0) {
-		mp_raise_msg(&mp_type_IndexError, "Offset out of range");
+	if (rtc_mem_str_crc != crc16_le(0, (uint8_t const *)rtc_mem_str, RTC_MEM_STR_SIZE)) {
+		return mp_const_none;
 	}
+	return mp_obj_new_str(rtc_mem_str, strlen(rtc_mem_str), false);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_rtcmem_read_string_obj, esp_rtcmem_read_string);
+
+//--------------------------------------------------
+STATIC mp_obj_t esp_rtcmem_clear(mp_obj_t self_in) {
+
+    rtc_init_mem();
+
 	return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_rtcmem_write_string_obj, 1, 2, esp_rtcmem_write_string_);
-
-
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_rtcmem_clear_obj, esp_rtcmem_clear);
 
 
 //=========================================================
 STATIC const mp_map_elem_t mach_rtc_locals_dict_table[] = {
-    { MP_OBJ_NEW_QSTR(MP_QSTR_init),                (mp_obj_t)&mach_rtc_init_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_now),                 (mp_obj_t)&mach_rtc_now_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_ntp_sync),            (mp_obj_t)&mach_rtc_ntp_sync_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_synced),              (mp_obj_t)&mach_rtc_has_synced_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_on_ext0),        (mp_obj_t)&machine_rtc_wake_on_ext0_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_on_ext1),        (mp_obj_t)&machine_rtc_wake_on_ext1_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_init),			MP_ROM_PTR(&mach_rtc_init_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_now),				MP_ROM_PTR(&mach_rtc_now_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_ntp_sync),		MP_ROM_PTR(&mach_rtc_ntp_sync_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_synced),			MP_ROM_PTR(&mach_rtc_has_synced_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_on_ext0),	MP_ROM_PTR(&machine_rtc_wake_on_ext0_obj) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_wake_on_ext1),	MP_ROM_PTR(&machine_rtc_wake_on_ext1_obj) },
 
-    {MP_OBJ_NEW_QSTR(MP_QSTR_rtcmem_write), 		(mp_obj_t)&esp_rtcmem_write_obj},
-    {MP_OBJ_NEW_QSTR(MP_QSTR_rtcmem_read), 			(mp_obj_t)&esp_rtcmem_read_obj},
-    {MP_OBJ_NEW_QSTR(MP_QSTR_rtcmem_write_string),	(mp_obj_t)&esp_rtcmem_write_string_obj},
-    {MP_OBJ_NEW_QSTR(MP_QSTR_rtcmem_read_string), 	(mp_obj_t)&esp_rtcmem_read_string_obj},
+    {MP_OBJ_NEW_QSTR(MP_QSTR_write),			MP_ROM_PTR(&esp_rtcmem_write_obj)},
+    {MP_OBJ_NEW_QSTR(MP_QSTR_read),				MP_ROM_PTR(&esp_rtcmem_read_obj)},
+    {MP_OBJ_NEW_QSTR(MP_QSTR_clear),			MP_ROM_PTR(&esp_rtcmem_clear_obj)},
+    {MP_OBJ_NEW_QSTR(MP_QSTR_write_string),		MP_ROM_PTR(&esp_rtcmem_write_string_obj)},
+    {MP_OBJ_NEW_QSTR(MP_QSTR_read_string),		MP_ROM_PTR(&esp_rtcmem_read_string_obj)},
 };
 STATIC MP_DEFINE_CONST_DICT(mach_rtc_locals_dict, mach_rtc_locals_dict_table);
 

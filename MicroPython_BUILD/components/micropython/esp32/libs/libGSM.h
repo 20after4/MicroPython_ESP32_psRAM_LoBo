@@ -19,6 +19,9 @@
 #define GSM_STATE_FIRSTINIT		98
 #define GSM_MAX_NAME_LEN		32
 
+#define SMS_SORT_NONE	0
+#define SMS_SORT_ASC	1
+#define SMS_SORT_DESC	-1
 
 typedef struct
 {
@@ -43,9 +46,11 @@ typedef struct
  * Initialize GSM and connect to Internet
  * Handle all PPPoS requests
  * Disconnect/Reconnect from/to Internet on user request
+ * If 'wait' = 1, wait until connected
+ * If 'doconn' = 0, only initialize the task, do not connect to Internet
  */
-//======================================================================================
-int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_t wait);
+//==================================================================================================
+int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn);
 
 /*
  * Disconnect from Internet
@@ -113,13 +118,29 @@ int smsSend(char *smsnum, char *msg);
 /*
  * Read all SMS messages to 'SMS_Messages' structure
  */
-//============================================
-void smsRead(SMS_Messages *SMSmesg, int sort);
+//====================================================
+void smsRead(SMS_Messages *SMSmesg, int sort, int new);
+
+void *smsReadTuple(int sort, int new, int delete);
+
+/*
+ * return number of new (unread) messages
+ */
+int smsCountNew();
 
 /*
  * Delete the message at GSM message index 'idx'
  */
 int smsDelete(int idx);
+
+//==============================================
+int setSMS_cb(void *cb_func, uint32_t interval);
+
+//=========================
+void setDebug(uint8_t dbg);
+
+//====================================================================================
+int at_Cmd(char *cmd, char* resp, char *buffer, int buf_size, int tmo, char *cmddata);
 
 #endif
 

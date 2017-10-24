@@ -71,11 +71,11 @@
 // MicroPython runs as a task under FreeRTOS
 // =========================================
 
+#define NVS_NAMESPACE       "MPY_NVM"
 #define MP_TASK_PRIORITY	CONFIG_MICROPY_TASK_PRIORITY
 #define MP_TASK_STACK_SIZE	(CONFIG_MICROPY_STACK_SIZE * 1024)
 #define MP_TASK_HEAP_SIZE	(CONFIG_MICROPY_HEAP_SIZE * 1024)
 #define MP_TASK_STACK_LEN	(MP_TASK_STACK_SIZE / sizeof(StackType_t))
-
 
 STATIC TaskHandle_t MainTaskHandle = NULL;
 #if MICROPY_PY_THREAD
@@ -92,16 +92,25 @@ void mp_task(void *pvParameter) {
 
     uart_init();
 
+    // Check and open NVS name space
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &mpy_nvs_handle) != ESP_OK) {
+    	mpy_nvs_handle = 0;
+        printf("Error while opening MicroPython NVS name space\n");
+    }
+
+    // Get and print reset & wakeup reasons
     mpsleep_init0();
     char rst_reason[24] = { 0 };
+    mpsleep_wake_reason_t wkupreason = mpsleep_get_wake_reason();
     mpsleep_get_reset_desc(rst_reason);
-    printf("Reset reason: %s Wakeup: ", rst_reason);
-    mpsleep_get_wake_desc(rst_reason);
-    printf("%s\n", rst_reason);
-
-    if (mpsleep_get_reset_cause() != MPSLEEP_DEEPSLEEP_RESET) {
-        rtc_init0();
+    if (mpsleep_get_wake_reason() != MPSLEEP_NONE_WAKE) printf(" ");
+    printf("Reset reason: %s\n", rst_reason);
+    if (mpsleep_get_wake_reason() != MPSLEEP_NONE_WAKE) {
+		mpsleep_get_wake_desc(rst_reason);
+		printf("Wakeup source: %s\n", rst_reason);
     }
+
+    if (mpsleep_get_reset_cause() != MPSLEEP_DEEPSLEEP_RESET) rtc_init0();
 
 	#if MICROPY_PY_THREAD
     mp_thread_preinit(&mp_task_stack[0], MP_TASK_STACK_LEN);
@@ -133,11 +142,16 @@ soft_reset:
     // Mount internal flash file system
     int res = mount_vfs(VFS_NATIVE_TYPE_SPIFLASH, VFS_NATIVE_INTERNAL_MP);
     if (res == 0) {
-    	// run boot-up scripts
-        //pyexec_frozen_module("_boot.py");
+    	// run boot-up script 'boot.py'
         pyexec_file("boot.py");
         if (pyexec_mode_kind == PYEXEC_MODE_FRIENDLY_REPL) {
-            pyexec_file("main.py");
+        	// Check if 'main.py' exists
+        	FILE *fd;
+        	fd = fopen(VFS_NATIVE_MOUNT_POINT"/main.py", "rb");
+            if (fd) {
+            	fclose(fd);
+            	pyexec_file("main.py");
+            }
         }
     }
     else printf("Error mounting Flash fs\n");

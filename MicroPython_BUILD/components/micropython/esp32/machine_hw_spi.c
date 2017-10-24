@@ -124,7 +124,7 @@ STATIC void machine_hw_spi_init_internal(
         self->buscfg.miso_io_num = miso;
     	changed |= 0x0200;
     }
-    if (cs != self->devcfg.spics_ext_io_num) {
+    if ((cs > -1) && (cs != self->devcfg.spics_ext_io_num)) {
         gpio_pad_select_gpio(cs);
         self->devcfg.spics_ext_io_num = cs;
     	changed |= 0x0400;
@@ -189,7 +189,7 @@ STATIC mp_obj_t machine_hw_spi_deinit(mp_obj_t self_in)
     }
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_1(machine_hw_spi_deinit_obj, machine_hw_spi_deinit);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_hw_spi_deinit_obj, machine_hw_spi_deinit);
 
 //-----------------------------------------------------------------------------------------------
 STATIC void machine_hw_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind)
@@ -226,8 +226,7 @@ STATIC mp_obj_t machine_hw_spi_init(mp_uint_t n_args, const mp_obj_t *pos_args, 
     };
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
-    mp_arg_parse_all(n_args-1, pos_args+1, kw_args, MP_ARRAY_SIZE(allowed_args),
-                     allowed_args, args);
+    mp_arg_parse_all(n_args-1, pos_args+1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
     int8_t sck=-1, mosi=-1, miso=-1, cs=-1;
 
@@ -321,7 +320,7 @@ STATIC mp_obj_t mp_machine_spi_read(size_t n_args, const mp_obj_t *args)
 	}
     return mp_const_false;
 }
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_read_obj, 2, 3, mp_machine_spi_read);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_read_obj, 2, 3, mp_machine_spi_read);
 
 //--------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_readinto(size_t n_args, const mp_obj_t *args)
@@ -351,7 +350,7 @@ STATIC mp_obj_t mp_machine_spi_readinto(size_t n_args, const mp_obj_t *args)
 	if (ret == ESP_OK) return mp_const_true;
     return mp_const_false;
 }
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_readinto_obj, 2, 3, mp_machine_spi_readinto);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_spi_readinto_obj, 2, 3, mp_machine_spi_readinto);
 
 //---------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_write(mp_obj_t self_in, mp_obj_t wr_buf)
@@ -373,7 +372,7 @@ STATIC mp_obj_t mp_machine_spi_write(mp_obj_t self_in, mp_obj_t wr_buf)
 	if (ret == ESP_OK) return mp_const_true;
     return mp_const_false;
 }
-MP_DEFINE_CONST_FUN_OBJ_2(mp_machine_spi_write_obj, mp_machine_spi_write);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mp_machine_spi_write_obj, mp_machine_spi_write);
 
 //-----------------------------------------------------------------------------------------------
 STATIC mp_obj_t mp_machine_spi_write_readinto(mp_obj_t self_in, mp_obj_t wr_buf, mp_obj_t rd_buf)
@@ -396,44 +395,61 @@ STATIC mp_obj_t mp_machine_spi_write_readinto(mp_obj_t self_in, mp_obj_t wr_buf,
 	if (ret == ESP_OK) return mp_const_true;
     return mp_const_false;
 }
-MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_write_readinto_obj, mp_machine_spi_write_readinto);
-
-//-----------------------------------------------------------------------------------------------------------------
-STATIC mp_obj_t mp_machine_spi_read_from_mem(mp_obj_t self_in, mp_obj_t addr_in, mp_obj_t len_in)
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_write_readinto_obj, mp_machine_spi_write_readinto);
+#include "py/objstr.h"
+//---------------------------------------------------------------------------------------------------------
+STATIC mp_obj_t mp_machine_spi_read_from_mem(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    machine_hw_spi_obj_t *self = self_in;
+    machine_hw_spi_obj_t *self = pos_args[0];
 
-    vstr_t vstr;
-    vstr_init_len(&vstr, mp_obj_get_int(len_in));
-    uint32_t addr = mp_obj_get_int(addr_in);
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_address,  MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_length,   MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_addrlen,                    MP_ARG_INT, {.u_int = 1} },
+    };
 
-    memset(vstr.buf, 0, vstr.len);
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args-1, pos_args+1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    uint8_t wrbuf[4];
+    uint8_t *rdbuf = NULL;
+    if (args[1].u_int > 0) {
+    	rdbuf = malloc(args[1].u_int);
+    }
+    uint32_t addr = (uint32_t)args[0].u_int;
+
+    int adrlen = args[2].u_int;
+    if (adrlen < 1) adrlen = 1;
+    if (adrlen > 4) adrlen = 4;
 
 	spi_lobo_transaction_t t;
     memset(&t, 0, sizeof(t));  //Zero out the transaction
 
-    t.tx_data[0] = addr & 0xFF;
-    t.tx_data[1] = (addr >> 8) & 0xFF;
-    t.tx_data[2] = (addr >> 16) & 0xFF;
-    t.tx_data[3] = (addr >> 24) & 0xFF;
-    t.length = 32;
-    if (addr <= 0x00FFFFFF) t.length -= 8;
-    if (addr <= 0x0000FFFF) t.length -= 8;
-    if (addr <= 0x000000FF) t.length -= 8;
+    wrbuf[0] = addr & 0xFF;
+    wrbuf[1] = (addr >> 8) & 0xFF;
+    wrbuf[2] = (addr >> 16) & 0xFF;
+    wrbuf[3] = (addr >> 24) & 0xFF;
+    t.tx_buffer = &wrbuf[0];
+    t.length = adrlen * 8;
+    //t.flags = SPI_TRANS_USE_TXDATA;
 
-    t.flags = SPI_TRANS_USE_TXDATA;
-
-    t.rxlength = vstr.len * 8;
-    t.rx_buffer = vstr.buf;
+    t.rxlength = args[1].u_int * 8;
+    t.rx_buffer = rdbuf;
 
 	esp_err_t ret = spi_lobo_transfer_data(self->spi, &t);
 
+	mp_obj_t res = mp_const_none;
 	if (ret == ESP_OK) {
-	    return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
+		if (rdbuf) res = mp_obj_new_str_of_type(&mp_type_bytes, rdbuf, args[1].u_int);
+		else res = mp_obj_new_str_of_type(&mp_type_bytes, (byte *)"", 0);
 	}
-    return mp_const_false;
+	else mp_obj_new_str_of_type(&mp_type_bytes, (byte *)"_Error_", 7);
+
+	if (rdbuf) free(rdbuf);
+
+	return res;
 }
-MP_DEFINE_CONST_FUN_OBJ_3(mp_machine_spi_read_from_mem_obj, mp_machine_spi_read_from_mem);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mp_machine_spi_read_from_mem_obj, 0, mp_machine_spi_read_from_mem);
 
 
 //================================================================

@@ -6,6 +6,8 @@
 
 This class includes full support for **ILI9341**, **ILI9488**, **ST7789V** and **ST7735** based TFT modules in 4-wire SPI mode.
 
+Some [TFT examples](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/tree/master/MicroPython_BUILD/components/micropython/esp32/modules_examples/tft) are available.
+
 ---
 
 ### Connecting the display
@@ -38,13 +40,17 @@ tft = display.TFT()
 #### Colors
 
 **Color** value are given as 24 bit integer numbers, 8-bit per color.
+
 For example: **0xFF0000** represents the RED color. Only upper 6 bits of the color component value is used.
+
 The following color constants are defined and can be used as color arguments: 
+
 **BLACK, NAVY, DARKGREEN, DARKCYAN, MAROON, PURPLE, OLIVE, LIGHTGREY, DARKGREY, BLUE, GREEN, CYAN, RED, MAGENTA, YELLOW, WHITE, ORANGE, GREENYELLOW, PINK**
 
 #### Drawing
 
 All **drawings** coordinates are **relative** to the **display window**.
+
 Initialy, the display window is set to full screen, and there are methods to set the window to the part of the full screen.
 
 #### Fonts
@@ -53,7 +59,12 @@ Initialy, the display window is set to full screen, and there are methods to set
 Unlimited number of fonts from file can also be used.
 
 The following font constants are defined and can be used as font arguments: 
+
 **FONT_Default, FONT_DefaultSmall, FONT_DejaVu18, FONT_Dejavu24, FONT_Ubuntu, FONT_Comic, FONT_Minya, FONT_Tooney, FONT_Small, FONT_7seg**
+
+#### Touch panel
+
+Touch panels based on **XPT2066** and **STMPE610** controllers are supported at the moment.
 
 ---
 
@@ -64,7 +75,9 @@ The following font constants are defined and can be used as font arguments:
 #### tft.init( type, mosi=pinnum, miso=pinnum, clk=pinnum, cs=pinnum [, tcs,rst_pin,backl_pin,backl_on, hastouch, invrot,bgr] )
 
 Initialize the SPI interface and set the warious operational modes.
+
 All arguments, except for **type** are **KW** arguments.
+
 *Pins have to be given as* **pin numbers**, *not the machine.Pin objects*
 
 | Argument | Description |
@@ -82,7 +95,7 @@ All arguments, except for **type** are **KW** arguments.
 | rst_pin | optional, default=nut used, pin to drive the RESET input on Display module, if not set the **software** reset will be used |
 | backl_pin | optional, default=nut used, pin to drive the backlight input on Display module, **do not use if the display module does not have some kind of backlight driver**, the display's backlight usualy needs more current than gpio can provide. |
 | backl_on | optional, default=0, polarity of *backl_pin* for backlight ON, 0 or 1 |
-| hastouch | optional, default=False, set to True if touch panel is used |
+| hastouch | optional, default=**TOUCH_NONE**, set to **TOUCH_XPT** or **TOUCH_STMPE** if touch panel is used |
 | invrot | optional, default=auto, configure special display rotation options, if not set default value for display type is used. If you get some kind of mirrored display, try to use values 0, 1, 2 or 3 |
 | bgr | optional, default=False, set to True if the display panel has BGR matrix. If you get inverted *RED* and *BLUE* colors, try to change this argument |
 
@@ -102,23 +115,28 @@ Draw the line from point (x,y) to point (x1,y1). If *color* is not given, curren
 ### tft.lineByAngle(x, y, start, length, angle [,color])
 
 Draw the line from point (x,y) with length *lenght* starting st distance *start* from center. If *color* is not given, current foreground color is used.
+
 The angle is given in degrees (0~359).
 
 ### tft.triangle(x, y, x1, y1, x2, y2 [,color, fillcolor])
 
 Draw the triangel between points (x,y), (x1,y1) and (x2,y2). If *color* is not given, current foreground color is used.
+
 If *fillcolor* is given, filled triangle will be drawn.
 
 ### tft.circle(x, y, r [,color, fillcolor])
 
 Draw the circle with center at (x,y) and radius r. If *color* is not given, current foreground color is used.
+
 If *fillcolor* is given, filled circle will be drawn.
 
 
 ### tft.ellipse(x, y, rx, ry [opt, color, fillcolor])
 
 Draw the circle with center at (x,y) and radius r. If *color* is not given, current foreground color is used.
+
 **opt* argument defines the ellipse segment to be drawn, default id 15, all ellipse segments.
+
 Multiple segments can drawn, combine (logical or) the values.
 * 1 - upper left segment
 * 2 - upper right segment
@@ -131,29 +149,37 @@ If *fillcolor* is given, filled elipse will be drawn.
 ### tft.arc(x, y, r, thick, start, end [color, fillcolor])
 
 Draw the arc with center at (x,y) and radius *r*, starting at angle *start* and ending at angle *end*
+
 The thicknes of the arc outline is set by the *thick* argument
+
 If *fillcolor* is given, filled arc will be drawn.
 
 
 ### tft.poly(x, y, r, sides, thick, [color, fillcolor, rotate])
 
 Draw the polygon with center at (x,y) and radius *r*, with number of sides *sides*
+
 The thicknes of the polygon outline is set by the *thick* argument
+
 If *fillcolor* is given, filled polygon will be drawn.
+
 If *rotate* is given, the polygon is rotated by the given angle (0~359)
 
 
 ### tft.rect(x, y, width, height, [color, fillcolor])
 
 Draw the rectangle from the upper left point at (x,y) and width *width* and height *height*
+
 If *fillcolor* is given, filled rectangle will be drawn.
 
 
 ### tft.roundrect(x, y, width, height, r [color, fillcolor])
 
-Draw the rectangle with rounded corners from the upper left point at (x,y) and width *width* and height *height*
-Corner radius is given by *r* argument.
-If *fillcolor* is given, filled rectangle will be drawn.
+Draw the rectangle with rounded corners from the upper left point at **(x,y)** and width **width** and height **height**
+
+Corner radius is given by **r** argument.
+
+If **fillcolor** is given, filled rectangle will be drawn.
 
 
 ### tft.clear([color])
@@ -163,6 +189,11 @@ Clear the screen with default background color or specific color if given.
 ### tft.clearWin([color])
 
 Clear the current display window with default background color or specific color if given.
+
+
+### tft.orient(orient)
+
+Set the display orientation. Use one of predifined constants: **tft.PORTRAIT**, **tft.LANDSCAPE**, **tft.PORTRAIT_FLIP**, **tft.LANDSCAPE_FLIP**
 
 
 ### tft.font(font [,rotate, transparent, fixedwidth, dist, width, outline, color])
@@ -234,8 +265,9 @@ Display the image from the file *file* on position (x,y)
 * Constants **tft.CENTER**, **tft.BOTTOM**, **tft.RIGHT** can be used for x&y
 * **x** and **y** values can be negative
 
-**scale** (jpg): image scale factor: 0~3; if scale>0, image is scaled by factor 1/(2^scale) (1/2, 1/4 or 1/8)
-**scale** (bmp): image scale factor: 0~7; if scale>0, image is scaled by factor 1/(scale+1)
+**scale** (jpg): image scale factor: 0 to 3; if scale>0, image is scaled by factor 1/(2^scale) (1/2, 1/4 or 1/8)
+
+**scale** (bmp): image scale factor: 0 to 7; if scale>0, image is scaled by factor 1/(scale+1)
 
 **type**: optional, set the image type, constants *tft.JPG* or *tft.BMP* can be used. If not set, file extension and/or file content will be used to determine the image type.
 
@@ -299,8 +331,35 @@ The tuple (touched, x, y) wil be returned.
 
 If the optional argument *raw* is True, the raw touch controller coordinates are returned. Otherwise, the calibrated screen coordinates are returned.
 
-**The touch calibration program will be included later**. At the moment, predefined calibration constants will give the correct coordinates for most 2.4" ILI9341 displays.
 
+#### Touch calibration can be done using the frozen module **tpcalib**.
+
+You must initialise the displayfirst.
+
+Usage:
+
+tpc(tft.TOUCH_STMPE|tft.TOUCH_XPT [, save])
+
+
+'''
+import tpcalib
+tpc = tpcalib.Calibrate(tft)
+dosave = True
+tp_type = tft.TOUCH_STMPE
+tpc.tpcalib(tt_type, dosave)
+
+'''
+
+If optional argument id **True**, calibration constants will be updated and saved in NVS memory as **tpcalibX** & **tpcalibY**.
+
+After reboot you can get them from NVS:
+
+'''
+import machine
+
+tft.setCalib(machine.nvs_getint("tpcalibX"), machine.nvs_getint("tpcalibY"))
+
+'''
 
 
 ---

@@ -110,8 +110,9 @@ float _angleOffset = DEFAULT_ANGLE_OFFSET;
 int	TFT_X = 0;
 int	TFT_Y = 0;
 
-uint32_t tp_calx = 7472920;
-uint32_t tp_caly = 122224794;
+uint8_t tp_type = TOUCH_TYPE_NONE;
+uint32_t tp_calx = 0;
+uint32_t tp_caly = 0;
 
 dispWin_t dispWin = {
   .x1 = 0,
@@ -2802,8 +2803,8 @@ exit:
 
 // ============= Touch panel functions =========================================
 
-//-----------------------------------------------
-static int tp_get_data(uint8_t type, int samples)
+//-------------------------------------------------------
+static int tp_get_data_xpt2046(uint8_t type, int samples)
 {
 	if (ts_spi == NULL) return 0;
 
@@ -2863,46 +2864,63 @@ static int tp_get_data(uint8_t type, int samples)
     return val;
 }
 
+//-----------------------------------------------
+static int TFT_read_touch_xpt2046(int *x, int* y)
+{
+	int res = 0, result = -1;
+	if (spi_lobo_device_select(ts_spi, 0) != ESP_OK) return 0;
+
+    result = tp_get_data_xpt2046(0xB0, 3);  // Z; pressure; touch detect
+	if (result <= 50) goto exit;
+
+	// touch panel pressed
+	result = tp_get_data_xpt2046(0xD0, 10);
+	if (result < 0)  goto exit;
+
+	*x = result;
+
+	result = tp_get_data_xpt2046(0x90, 10);
+	if (result < 0)  goto exit;
+
+	*y = result;
+	res = 1;
+exit:
+	spi_lobo_device_deselect(ts_spi);
+	return res;
+}
+
+
 //=============================================
 int TFT_read_touch(int *x, int* y, uint8_t raw)
 {
-	if (ts_spi == NULL) {
-	    *x = 0;
-	    *y = 0;
-	    return 0;
-	}
-
-	int result = -1;
-    int32_t X=0, Y=0, tmp;
-
     *x = 0;
     *y = 0;
+	if (ts_spi == NULL) return 0;
 
-	if (spi_lobo_device_select(ts_spi, 0) != ESP_OK) return 0;
+	int result = -1;
+    int X=0, Y=0;
 
-    result = tp_get_data(0xB0, 3);  // Z; pressure; touch detect
-	if (result > 50)  {
-		// touch panel pressed
-		result = tp_get_data(0xD0, 10);
-		if (result >= 0) {
-			X = result;
+    if (tp_type == TOUCH_TYPE_XPT2046) {
+    	result = TFT_read_touch_xpt2046(&X, &Y);
+    	if (result == 0) return 0;
+    }
+    else if (tp_type == TOUCH_TYPE_STMPE610) {
+        uint16_t Xx, Yy, Z=0;
+    	result = stmpe610_get_touch(&Xx, &Yy, &Z);
+    	if (result == 0) return 0;
+    	X = Xx;
+    	Y = Yy;
+    }
+    else return 0;
 
-			result = tp_get_data(0x90, 10);
-			if (result >= 0) Y = result;
-		}
-	}
+    if (raw) {
+    	*x = X;
+    	*y = Y;
+    	return 1;
+    }
 
-	if (result <= 50) {
-		result = 0;
-		goto exit;
-	}
-
-	if (raw) {
-		*x = X;
-		*y = Y;
-		goto exit;
-	}
-
+    // Calibrate the result
+	int tmp;
 	int xleft   = (tp_calx >> 16) & 0x3FFF;
 	int xright  = tp_calx & 0x3FFF;
 	int ytop    = (tp_caly >> 16) & 0x3FFF;
@@ -2911,42 +2929,62 @@ int TFT_read_touch(int *x, int* y, uint8_t raw)
 	int width = _width;
 	int height = _height;
 
-	if (((xright - xleft) != 0) && ((ybottom - ytop) != 0)) {
+	if (((xright - xleft) <= 0) || ((ybottom - ytop) <= 0)) return 0;
+
+	if (tp_type == TOUCH_TYPE_XPT2046) {
 		X = ((X - xleft) * height) / (xright - xleft);
 		Y = ((Y - ytop) * width) / (ybottom - ytop);
-	}
-	else {
-		result = 0;
-		goto exit;
-	}
 
-	if (X < 0) X = 0;
-	if (X > height-1) X = height-1;
-	if (Y < 0) Y = 0;
-	if (Y > width-1) Y = width-1;
+		if (X < 0) X = 0;
+		if (X > height-1) X = height-1;
+		if (Y < 0) Y = 0;
+		if (Y > width-1) Y = width-1;
 
-	switch (orientation) {
-		case PORTRAIT:
-			tmp = X;
-			X = width - Y - 1;
-			Y = tmp;
-			break;
-		case PORTRAIT_FLIP:
-			tmp = X;
-			X = Y;
-			Y = height - tmp - 1;
-			break;
-		case LANDSCAPE_FLIP:
-			X = height - X - 1;
-			Y = width - Y - 1;
-			break;
-	}
+		switch (orientation) {
+			case PORTRAIT:
+				tmp = X;
+				X = width - Y - 1;
+				Y = tmp;
+				break;
+			case PORTRAIT_FLIP:
+				tmp = X;
+				X = Y;
+				Y = height - tmp - 1;
+				break;
+			case LANDSCAPE_FLIP:
+				X = height - X - 1;
+				Y = width - Y - 1;
+				break;
+		}
+    }
+    else if (tp_type == TOUCH_TYPE_STMPE610) {
+		X = ((X - xleft) * width) / (xright - xleft);
+		Y = ((Y - ytop) * height) / (ybottom - ytop);
 
+		if (X < 0) X = 0;
+		if (X > width-1) X = width-1;
+		if (Y < 0) Y = 0;
+		if (Y > height-1) Y = height-1;
+
+		switch (orientation) {
+			case PORTRAIT_FLIP:
+				X = width - X - 1;
+				Y = height - Y - 1;
+				break;
+			case LANDSCAPE:
+				tmp = X;
+				X = height - Y - 1;
+				Y = tmp;
+				break;
+			case LANDSCAPE_FLIP:
+				tmp = X;
+				X = Y;
+				Y = width - tmp - 1;
+				break;
+		}
+    }
 	*x = X;
 	*y = Y;
-
-exit:
-	spi_lobo_device_deselect(ts_spi);
-	return result;
+	return 1;
 }
 

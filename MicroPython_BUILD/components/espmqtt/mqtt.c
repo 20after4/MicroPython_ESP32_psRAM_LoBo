@@ -98,8 +98,8 @@ static bool client_connect(mqtt_client *client)
             ESP_LOGI(MQTT_TAG, "Resolve dns for domain: %s", client->settings->host);
 
             if (!resolve_dns(client->settings->host, &remote_ip)) {
-                vTaskDelay(1000 / portTICK_RATE_MS);
-                continue;
+                ESP_LOGE(MQTT_TAG, "Resolve dns for domain: %s failed", client->settings->host);
+                return false;
             }
         }
 
@@ -131,7 +131,7 @@ static bool client_connect(mqtt_client *client)
 			ESP_LOGI(MQTT_TAG, "Creating SSL object...");
 			client->ssl = SSL_new(client->ctx);
 			if (!client->ssl) {
-				ESP_LOGE(MQTT_TAG, "Unable to create new SSL");
+				ESP_LOGE(MQTT_TAG, "Unable to create new SSL object");
 				goto failed3;
 			}
 
@@ -154,17 +154,17 @@ static bool client_connect(mqtt_client *client)
         //failed5:
         //   SSL_shutdown(client->ssl);
 
-failed4:
+failed4:  // SSL_CTX_new failed
         if (client->settings->use_ssl) {
 			SSL_free(client->ssl);
 			client->ssl = NULL;
         }
 
-failed3:
-          close(client->socket);
-          client->socket = -1;
+failed3:  // Connect failed
+        close(client->socket);
+        client->socket = -1;
 
-failed2:
+failed2:  // Failed to create socket
         if (client->settings->use_ssl) {
         	SSL_CTX_free(client->ctx);
         }
@@ -173,7 +173,7 @@ failed1:
         if (client->settings->use_ssl) {
         	client->ctx = NULL;
         }
-         vTaskDelay(1000 / portTICK_RATE_MS);
+        return false;
      }
 }
 
@@ -556,7 +556,11 @@ void mqtt_task(void *pvParameters)
     		break;
     	}
 
-        client->settings->connect_cb(client);
+        if (client->settings->connect_cb(client) == false) {
+            ESP_LOGE(MQTT_TAG, "Connection to server %s:%d failed!", client->settings->host, client->settings->port);
+    	    client->status = MQTT_STATUS_STOPPING;
+    		break;
+        }
 
         ESP_LOGI(MQTT_TAG, "Connected to server %s:%d", client->settings->host, client->settings->port);
         if (!mqtt_connect(client)) {

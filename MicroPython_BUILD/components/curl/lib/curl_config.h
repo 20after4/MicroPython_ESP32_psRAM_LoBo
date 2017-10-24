@@ -1,6 +1,9 @@
 /* lib/curl_config.h.  Generated from curl_config.h.in by configure.  */
 /* lib/curl_config.h.in.  Generated from configure.ac by autoheader.  */
 
+#include "sdkconfig.h"
+
+
 /* to disable NTLM authentication */
 #define CURL_DISABLE_NTLM 1
 
@@ -947,7 +950,9 @@
 ///#define USE_MANUAL 1
 
 /* if mbedTLS is enabled */
+#ifdef CONFIG_MICROPY_USE_CURL_TLS
 #define USE_MBEDTLS 1
+#endif
 /*
  * Enable mbedTLS debug logging via the esp_log mechanism.
  * mbedTLS internal debugging is filtered from a specified mbedTLS

@@ -161,7 +161,6 @@ SRC_C =  $(addprefix esp32/,\
 	mpsleep.c \
 	machine_rtc.c \
 	modymodem.c \
-	esprtcmem.c \
 	moddisplay.c \
 	machine_hw_i2c.c \
 	machine_neopixel.c \
@@ -183,6 +182,10 @@ endif
 
 ifdef CONFIG_MICROPY_USE_BLUETOOTH
 SRC_C += esp32/network_bluetooth.c
+endif
+
+ifdef CONFIG_MICROPY_USE_GSM
+SRC_C += esp32/modgsm.c
 endif
 
 EXTMOD_SRC_C = $(addprefix extmod/,\
@@ -247,6 +250,7 @@ LIBS_SRC_C = $(addprefix esp32/libs/,\
 	esp_rmt.c \
 	telnet.c \
 	ftp.c \
+	websrv.c \
 	libGSM.c \
 	)
 

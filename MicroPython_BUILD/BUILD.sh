@@ -16,7 +16,7 @@
 # ./BUILD copyfs        - flash prebuilt spiffs image to ESP32
 
 
-TOOLS_VER=ver20171008.id
+TOOLS_VER=ver20171024.id
 
 #---------------------------------------------------------------------------------------------------------------------
 # Check parameters
@@ -381,15 +381,22 @@ elif [ "${arg}" == "clean" ]; then
     echo "Cleaning MicroPython build..."
     echo "============================="
 
-    #rm -f components/micropython/mpy-cross/mpy-cross > /dev/null 2>&1
-    rm -f build/* > /dev/null 2>&1
-    rm -f components/mkspiffs/src/*.o > /dev/null 2>&1
-    rm -f components/mkspiffs/src/spiffs/*.o > /dev/null 2>&1
     if [ "${MP_SHOW_PROGRESS}" == "yes" ]; then
         make clean
     else
         make clean > /dev/null 2>&1
     fi
+    sleep 1
+    #rm -f components/micropython/mpy-cross/mpy-cross > /dev/null 2>&1
+    rm -rf build/ > /dev/null 2>&1
+    rmdir build > /dev/null 2>&1
+    rm -f components/mkspiffs/src/*.o > /dev/null 2>&1
+    rm -f components/mkspiffs/src/spiffs/*.o > /dev/null 2>&1
+    rm -f components/mkfatfs/src/*.o > /dev/null 2>&1
+    rm -f components/mkfatfs/src/fatfs/*.o > /dev/null 2>&1
+    rm -f components/mkfatfs/src/spi_flash/*.o > /dev/null 2>&1
+    rm -f components/mkfatfs/src/vfs/*.o > /dev/null 2>&1
+    rm -f components/mkfatfs/src/wear_leveling/*.o > /dev/null 2>&1
 elif [ "${arg}" == "menuconfig" ]; then
     make menuconfig
 elif [ "${arg}" == "makefs" ]; then
@@ -434,7 +441,9 @@ else
     fi
 fi
 
-if [ $? -ne 0 ] && [ "${jopt}" == "y" ]; then
+result=$?
+
+if [ $result -ne 0 ] && [ "${arg}" == "all" ] && [ "${jopt}" == "y" ]; then
     echo "Build failed, starting again..."
     sleep 2
     if [ "${MP_SHOW_PROGRESS}" == "yes" ]; then
@@ -442,15 +451,18 @@ if [ $? -ne 0 ] && [ "${jopt}" == "y" ]; then
     else
         make  ${opt} ${arg} > /dev/null 2>&1
     fi
+    result=$?
 fi
 
-if [ $? -eq 0 ]; then
+if [ $result -eq 0 ]; then
     echo "OK."
     if [ "${arg}" == "all" ]; then
+        echo "--------------------------------"
         if [ "${BUILD_TYPE}" == "" ]; then
             cp -f build/MicroPython.bin firmware/esp32 > /dev/null 2>&1
             cp -f build/bootloader/bootloader.bin firmware/esp32/bootloader > /dev/null 2>&1
-            cp -f build/partitions_singleapp.bin firmware/esp32 > /dev/null 2>&1
+            cp -f build/partitions_mpy.bin firmware/esp32 > /dev/null 2>&1
+            cp -f build/phy_init_data.bin firmware/esp32 > /dev/null 2>&1
             cp -f sdkconfig firmware/esp32 > /dev/null 2>&1
             echo "#!/bin/bash" > firmware/esp32/flash.sh
             make print_flash_cmd >> firmware/esp32/flash.sh 2>/dev/null
@@ -458,7 +470,8 @@ if [ $? -eq 0 ]; then
         else
             cp -f build/MicroPython.bin firmware/esp32_psram > /dev/null 2>&1
             cp -f build/bootloader/bootloader.bin firmware/esp32_psram/bootloader > /dev/null 2>&1
-            cp -f build/partitions_singleapp.bin firmware/esp32_psram > /dev/null 2>&1
+            cp -f build/partitions_mpy.bin firmware/esp32_psram > /dev/null 2>&1
+            cp -f build/phy_init_data.bin firmware/esp32_psram > /dev/null 2>&1
             cp -f sdkconfig firmware/esp32_psram > /dev/null 2>&1
             echo "#!/bin/bash" > firmware/esp32_psram/flash.sh
             make print_flash_cmd >> firmware/esp32_psram/flash.sh 2>/dev/null

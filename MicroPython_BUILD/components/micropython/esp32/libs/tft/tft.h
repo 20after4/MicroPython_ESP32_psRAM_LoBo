@@ -38,6 +38,16 @@
 #include <stdlib.h>
 #include "tftspi.h"
 
+#define TOUCH_TYPE_NONE		0
+#define TOUCH_TYPE_XPT2046	1
+#define TOUCH_TYPE_STMPE610	2
+
+#define TP_CALX_XPT2046		7472920
+#define TP_CALY_XPT2046		122224794
+
+#define TP_CALX_STMPE610	21368532
+#define TP_CALY_STMPE610	11800144
+
 typedef struct {
 	uint16_t        x1;
 	uint16_t        y1;
@@ -79,6 +89,7 @@ extern Font cfont;					// Current font structure
 extern int	TFT_X;					// X position of the next character after TFT_print() function
 extern int	TFT_Y;					// Y position of the next character after TFT_print() function
 
+extern uint8_t tp_type;				// touch controller type
 extern uint32_t tp_calx;			// touch screen X calibration constant
 extern uint32_t tp_caly;			// touch screen Y calibration constant
 // =========================================================================================

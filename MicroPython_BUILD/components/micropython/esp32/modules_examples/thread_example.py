@@ -109,22 +109,45 @@ bmeth=_thread.start_new_thread("BME280", bmerun, (60,))
 
 # === In the 3rd thread we will run Neopixels rainbow demo ===
 
-np=machine.Neopixel(machine.Pin(22), 24)
+num_np = 144
+np=machine.Neopixel(machine.Pin(21), num_np)
+
+def rainbow(pos=1, bri=0.02):
+    dHue = 360*3/num_np
+    for i in range(1, num_np):
+        hue = (dHue * (pos+i)) % 360;
+        np.setHSB(i, hue, 1.0, bri, 1, False)
+    np.show()
 
 # DEfine Neopixels thread function
-#---------------
-def thrainbow():
+#-----------------
+def thrainbow_py():
     pos = 0
     bri = 0.02
     while True:
-        for i in range(0, 24):
-            dHue = 360.0/24*(pos+i);
+        for i in range(0, num_np):
+            dHue = 360.0/num_np * (pos+i);
             hue = dHue % 360;
             np.setHSB(i, hue, 1.0, bri, 1, False)
         np.show()
         notif = _thread.getnotification()
         if (notif > 0) and (notif <= 100):
             bri =  notif / 100.0
+        elif notif == 1000:
+            _thread.sendmsg(_thread.getReplID(), "[%s] Run counter = %u" % (_thread.getSelfName(), pos))
+        pos = pos + 1
+
+import math
+#---------------
+def thrainbow():
+    pos = 0
+    np.brightness(25)
+    while True:
+        np.rainbow(pos, 3)
+        notif = _thread.getnotification()
+        if (notif > 0) and (notif <= 100):
+            np.brightness(math.trunc(notif * 2.55))
+            
         elif notif == 1000:
             _thread.sendmsg(_thread.getReplID(), "[%s] Run counter = %u" % (_thread.getSelfName(), pos))
         pos = pos + 1

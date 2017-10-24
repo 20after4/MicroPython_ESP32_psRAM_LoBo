@@ -57,11 +57,11 @@ typedef enum {
 } telnet_state_t;
 
 
-char telnet_user[TELNET_USER_PASS_LEN_MAX + 1];
-char telnet_pass[TELNET_USER_PASS_LEN_MAX + 1];
-uint32_t telnet_stack_size;
-QueueHandle_t telnet_mutex;
-int telnet_timeout;
+extern char telnet_user[TELNET_USER_PASS_LEN_MAX + 1];
+extern char telnet_pass[TELNET_USER_PASS_LEN_MAX + 1];
+extern uint32_t telnet_stack_size;
+extern QueueHandle_t telnet_mutex;
+extern int telnet_timeout;
 
 /******************************************************************************
  DECLARE PUBLIC FUNCTIONS

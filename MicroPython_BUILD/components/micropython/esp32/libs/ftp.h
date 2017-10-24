@@ -61,13 +61,13 @@ typedef enum {
 #define FTP_MUTEX_TIMEOUT_MS    1000
 #define FTP_CMD_TIMEOUT_MS      (CONFIG_MICROPY_FTPSERVER_TIMEOUT*1000)
 
-const char *FTP_TAG;
-char ftp_user[FTP_USER_PASS_LEN_MAX + 1];
-char ftp_pass[FTP_USER_PASS_LEN_MAX + 1];
-uint32_t ftp_stack_size;
-QueueHandle_t ftp_mutex;
-int ftp_buff_size;
-int ftp_timeout;
+extern const char *FTP_TAG;
+extern char ftp_user[FTP_USER_PASS_LEN_MAX + 1];
+extern char ftp_pass[FTP_USER_PASS_LEN_MAX + 1];
+extern uint32_t ftp_stack_size;
+extern QueueHandle_t ftp_mutex;
+extern int ftp_buff_size;
+extern int ftp_timeout;
 
 void ftp_init (void);
 void ftp_deinit (void);

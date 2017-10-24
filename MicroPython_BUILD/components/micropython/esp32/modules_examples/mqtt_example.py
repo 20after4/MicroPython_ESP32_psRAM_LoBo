@@ -16,7 +16,16 @@ def datacb(msg):
 
 mqtt = network.mqtt("loboris", "loboris.eu", user="wifimcu", password="wifimculobo", cleansession=True, connected_cb=conncb, disconnected_cb=disconncb, subscribed_cb=subscb, published_cb=pubcb, data_cb=datacb)
 
-mqtts = network.mqtt("eclipse", "iot.eclipse.org", secure=True, cleansession=True, connected_cb=conncb, disconnected_cb=disconncb, subscribed_cb=subscb, published_cb=pubcb, data_cb=datacb)
+# secure connection requires more memory and may not work
+# mqtts = network.mqtt("eclipse", "iot.eclipse.org", secure=True, cleansession=True, connected_cb=conncb, disconnected_cb=disconncb, subscribed_cb=subscb, published_cb=pubcb, data_cb=datacb)
 
 
+'''
+
+# Wait until status is: (1, 'Connected')
+
+mqtt.subscribe('test')
+mqtt.publish('test', 'Hi from Micropython')
+
+'''
 

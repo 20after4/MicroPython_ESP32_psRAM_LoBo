@@ -739,9 +739,16 @@ static void _sdcard_mount()
 	#if defined(CONFIG_SDCARD_MODE1) && defined(IDF_HAS_SDSPIHOST)
 		sdmmc_host_t host = SDSPI_HOST_DEFAULT();
 		sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
+		//host.slot = VSPI_HOST;
+	    gpio_pad_select_gpio(CONFIG_SDCARD_MISO);
+	    gpio_pad_select_gpio(CONFIG_SDCARD_MOSI);
+	    gpio_pad_select_gpio(CONFIG_SDCARD_CLK);
+	    gpio_pad_select_gpio(CONFIG_SDCARD_CS);
+	    gpio_set_direction(CONFIG_SDCARD_MISO, GPIO_MODE_INPUT);
 	    gpio_set_pull_mode(CONFIG_SDCARD_MISO, GPIO_PULLUP_ONLY);
 	    gpio_set_pull_mode(CONFIG_SDCARD_CLK, GPIO_PULLUP_ONLY);
 	    gpio_set_pull_mode(CONFIG_SDCARD_MOSI, GPIO_PULLUP_ONLY);
+	    gpio_set_pull_mode(CONFIG_SDCARD_CS, GPIO_PULLUP_ONLY);
 	    slot_config.gpio_miso = CONFIG_SDCARD_MISO;
 	    slot_config.gpio_mosi = CONFIG_SDCARD_MOSI;
 	    slot_config.gpio_sck  = CONFIG_SDCARD_CLK;
@@ -896,6 +903,33 @@ int mount_vfs(int type, char *chdir_to)
     }
     else return -2;
     return 0;
+}
+
+//------------------
+int internalUmount()
+{
+	int res = 0;
+    if (native_vfs_mounted[VFS_NATIVE_TYPE_SPIFLASH]) {
+		#if MICROPY_USE_SPIFFS
+    	res = spiffs_unmount(1);
+		#else
+    	if (s_wl_handle != WL_INVALID_HANDLE) res = wl_unmount(s_wl_handle);
+    	if (res) res = 0;
+		#endif
+    }
+    return res;
+}
+
+//-----------------
+int externalUmount()
+{
+	int res = 0;
+    if (native_vfs_mounted[VFS_NATIVE_TYPE_SDCARD]) {
+    	esp_vfs_fat_sdmmc_unmount();
+    	if (res) res = 0;
+    }
+
+    return res;
 }
 
 

@@ -114,10 +114,9 @@ class SSD1306_I2C(SSD1306):
         self.i2c.writeto(self.addr, self.temp)
 
     def write_data(self, buf):
-        self.temp[0] = self.addr << 1
-        self.temp[1] = 0x40 # Co=0, D/C#=1
-        self.i2c.write(self.temp)
-        self.i2c.write(buf)
+        temp1 = bytearray(1)
+        temp1[0] = 0x40 # Co=0, D/C#=1
+        self.i2c.writeto(self.addr, temp1+buf)
 
     def poweron(self):
         pass

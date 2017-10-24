@@ -40,6 +40,7 @@
 #include "tftspi.h"
 #include "spi_master_lobo.h"
 #include "sdkconfig.h"
+#include "stmpe610.h"
 
 #define CONFIG_EXAMPLE_ESP_WROVER_KIT
 
@@ -497,6 +498,15 @@ void _tft_setRotation(uint8_t rot);
 // * 'tft_disp_type', 'COLOR_BITS', '_width', '_height' variables must be set
 //======================
 void TFT_display_init();
+
+//===================
+void stmpe610_Init();
+
+//============================================================
+int stmpe610_get_touch(uint16_t *x, uint16_t *y, uint16_t *z);
+
+//========================
+uint32_t stmpe610_getID();
 
 // ===============================================================================
 

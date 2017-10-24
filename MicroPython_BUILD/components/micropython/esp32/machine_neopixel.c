@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "libs/esp_rmt.h"
 #include "libs/neopixel.h"
@@ -195,26 +196,26 @@ MP_DEFINE_CONST_FUN_OBJ_1(machine_neopixel_show_obj, machine_neopixel_show);
 STATIC mp_obj_t machine_neopixel_set(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
 	const mp_arg_t allowed_args[] = {
-	    { MP_QSTR_pos,   MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
-	    { MP_QSTR_color, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0} },
-	    { MP_QSTR_num,                     MP_ARG_OBJ, {.u_int = 1} },
-	    { MP_QSTR_update,                  MP_ARG_OBJ, {.u_bool = true} },
+	    { MP_QSTR_pos,   MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = 0} },
+	    { MP_QSTR_color, MP_ARG_REQUIRED | MP_ARG_INT,  {.u_int = 0} },
+	    { MP_QSTR_num,                     MP_ARG_INT,  {.u_int = 1} },
+	    { MP_QSTR_update,                  MP_ARG_BOOL, {.u_bool = true} },
 	};
 	machine_neopixel_obj_t *self = pos_args[0];
     np_check(self);
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    int cnt = args[2].u_int & 0xFF;
+    int cnt = args[2].u_int;
     uint32_t color = (uint32_t)args[1].u_int & 0x00FFFFFF;
-    int pos = args[0].u_int & 0xFF;
+    int pos = args[0].u_int;
 
 	if (pos < 1) pos = 1;
 	if (pos > self->px.pixel_count) pos = self->px.pixel_count;
 	if (cnt < 1) cnt = 1;
 	if ((cnt + pos - 1) > self->px.pixel_count) cnt = self->px.pixel_count - pos + 1;
 
-	for (uint8_t i = 0; i < cnt; i++) {
+	for (uint16_t i = 0; i < cnt; i++) {
 		np_set_pixel_color32(&self->px, i+pos-1, color << 8);
 	}
 
@@ -232,12 +233,12 @@ MP_DEFINE_CONST_FUN_OBJ_KW(machine_neopixel_set_obj, 2, machine_neopixel_set);
 STATIC mp_obj_t machine_neopixel_setHSB(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
 
     const mp_arg_t allowed_args[] = {
-  	    { MP_QSTR_pos, 		   MP_ARG_REQUIRED | MP_ARG_INT, { .u_int = 0} },
-        { MP_QSTR_hue,         MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-        { MP_QSTR_saturation,  MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-        { MP_QSTR_brightness,  MP_ARG_REQUIRED | MP_ARG_OBJ, { .u_obj = mp_const_none } },
-	    { MP_QSTR_num,                           MP_ARG_OBJ, { .u_int = 1} },
-	    { MP_QSTR_update,                        MP_ARG_OBJ, { .u_bool = true} },
+  	    { MP_QSTR_pos, 		   MP_ARG_REQUIRED | MP_ARG_INT,  { .u_int = 0} },
+        { MP_QSTR_hue,         MP_ARG_REQUIRED | MP_ARG_OBJ,  { .u_obj = mp_const_none } },
+        { MP_QSTR_saturation,  MP_ARG_REQUIRED | MP_ARG_OBJ,  { .u_obj = mp_const_none } },
+        { MP_QSTR_brightness,  MP_ARG_REQUIRED | MP_ARG_OBJ,  { .u_obj = mp_const_none } },
+	    { MP_QSTR_num,                           MP_ARG_INT,  { .u_int = 1} },
+	    { MP_QSTR_update,                        MP_ARG_BOOL, { .u_bool = true} },
     };
 	machine_neopixel_obj_t *self = pos_args[0];
     np_check(self);
@@ -251,15 +252,15 @@ STATIC mp_obj_t machine_neopixel_setHSB(size_t n_args, const mp_obj_t *pos_args,
 
     uint32_t color = hsb_to_rgb(hue, sat, bri);
 
-    int pos = args[0].u_int & 0xFF;
-    int cnt = args[4].u_int & 0xFF;
+    int pos = args[0].u_int;
+    int cnt = args[4].u_int;
 
 	if (pos < 1) pos = 1;
 	if (pos > self->px.pixel_count) pos = self->px.pixel_count;
 	if (cnt < 1) cnt = 1;
 	if ((cnt + pos - 1) > self->px.pixel_count) cnt = self->px.pixel_count - pos + 1;
 
-	for (uint8_t i = 0; i < cnt; i++) {
+	for (uint16_t i = 0; i < cnt; i++) {
 		np_set_pixel_color32(&self->px, i+pos-1, color);
 	}
 
@@ -455,6 +456,31 @@ STATIC mp_obj_t machine_neopixel_timings(size_t n_args, const mp_obj_t *pos_args
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_neopixel_timings_obj, 0, machine_neopixel_timings);
 
+//-------------------------------------------------------------------------------------------
+STATIC mp_obj_t machine_neopixel_rainbow(mp_obj_t self_in, mp_obj_t pos_in, mp_obj_t fact_in)
+{
+    machine_neopixel_obj_t *self = self_in;
+    np_check(self);
+
+    uint32_t color;
+    int pos = mp_obj_get_int(pos_in);
+    int fact = mp_obj_get_int(fact_in);
+    float hue;
+    float dHue = 360.0 * fact / (float)self->px.pixel_count;
+    float bri = (float)self->px.brightness / 255.0;
+
+    for (int i=0; i<self->px.pixel_count; i++) {
+        hue = fmod((dHue * (pos+i)), 360.0);
+        color = hsb_to_rgb(hue, 1.0, bri);
+		np_set_pixel_color32(&self->px, i, color);
+    }
+   	MP_THREAD_GIL_EXIT();
+	np_show(&self->px);
+   	MP_THREAD_GIL_ENTER();
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_3(machine_neopixel_rainbow_obj, machine_neopixel_rainbow);
+
 
 //=====================================================================
 STATIC const mp_rom_map_elem_t machine_neopixel_locals_dict_table[] = {
@@ -469,6 +495,7 @@ STATIC const mp_rom_map_elem_t machine_neopixel_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_deinit),     (mp_obj_t)&machine_neopixel_deinit_obj },
     { MP_ROM_QSTR(MP_QSTR_timings),    (mp_obj_t)&machine_neopixel_timings_obj },
     { MP_ROM_QSTR(MP_QSTR_color_order),(mp_obj_t)&machine_neopixel_corder_obj },
+    { MP_ROM_QSTR(MP_QSTR_rainbow),    (mp_obj_t)&machine_neopixel_rainbow_obj },
 
 	{ MP_ROM_QSTR(MP_QSTR_BLACK), MP_ROM_INT(0x000000) },
 	{ MP_ROM_QSTR(MP_QSTR_WHITE), MP_ROM_INT(0xFFFFFF) },

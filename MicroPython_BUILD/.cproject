@@ -60,6 +60,7 @@
 									<listOptionValue builtIn="false" value="LWIP_DNS=1"/>
 									<listOptionValue builtIn="false" value="LWIP_SOCKET=1"/>
 									<listOptionValue builtIn="false" value="IDF_USEHEAP=1"/>
+									<listOptionValue builtIn="false" value="IDF_HAS_SDSPIHOST=1"/>
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.827066523" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>

@@ -472,11 +472,12 @@ MP_DEFINE_CONST_FUN_OBJ_1(mqtt_status_obj, mqtt_op_status);
 STATIC mp_obj_t mqtt_op_stop(mp_obj_t self_in)
 {
     mqtt_obj_t *self = self_in;
-    checkClient(self);
+    int status = checkClient(self);
 
-    mqtt_stop(self->client);
-    vTaskDelay(100 / portTICK_RATE_MS);
-
+    if (status < 2) {
+		mqtt_stop(self->client);
+		vTaskDelay(100 / portTICK_RATE_MS);
+    }
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(mqtt_stop_obj, mqtt_op_stop);
