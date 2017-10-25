@@ -386,13 +386,21 @@ STATIC mp_obj_t mod_machine_nvs_get_str (mp_obj_t _key) {
 	checkNVS();
 
     const char *key = mp_obj_str_get_str(_key);
-    char *value = NULL;
     size_t len = 0;
+    mp_obj_t strval = mp_const_none;
 
-    if (ESP_ERR_NVS_NOT_FOUND == nvs_get_str(mpy_nvs_handle, key, value, &len)) {
-        return mp_const_none;
+    esp_err_t ret = nvs_get_str(mpy_nvs_handle, key, NULL, &len);
+    if ((ret == ESP_OK ) && (len > 0)) {
+        char *value = malloc(len);
+        if (value) {
+            esp_err_t ret = nvs_get_str(mpy_nvs_handle, key, value, &len);
+            if ((ret == ESP_OK ) && (len > 0)) {
+                strval = mp_obj_new_str(value, strlen(value), 0);
+                free(value);
+            }
+        }
     }
-    return mp_obj_new_str(value, strlen(value), 0);
+    return strval;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_machine_nvs_get_str_obj, mod_machine_nvs_get_str);
 
