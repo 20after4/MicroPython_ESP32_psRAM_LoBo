@@ -19,7 +19,7 @@ This module includes full support for using various GSM/GPRS modules connected v
 | GND | GND  | Power supply ground |
 | ... | Vcc  | GSM module power supply, usualy 3.4~4.2 V (LiPo battery) |
 
-*If rts&cts are set, UART hardware flow controll is set, if not, no flow controll is used*. 
+*If rts&cts are set, UART hardware flow controll is set, if not, no flow control is used*. 
 
 **GSM modules usualy have IO interface pins working in 2.8 or 1.8 V range. When connecting to ESP32 3.3V level shifters must be used**
 
@@ -146,6 +146,8 @@ Register the **callback function** which will be executed on new message arrival
 Message check interval can be set by optional **interval** argiment to 5 ~ 86400 seconds. Default check interval is 60 seconds.
 
 The argument returned to the callback function is tuple of **unread** message indexes sorted in descending order.
+
+Use **gsm.sms_cb(None)** to **unregister** callback function and stop checking for new messages.
 
 ```
 def smscb(indexes):

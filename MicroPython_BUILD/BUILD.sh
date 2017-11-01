@@ -16,7 +16,7 @@
 # ./BUILD copyfs        - flash prebuilt spiffs image to ESP32
 
 
-TOOLS_VER=ver20171024.id
+TOOLS_VER=ver20171101.id
 
 #---------------------------------------------------------------------------------------------------------------------
 # Check parameters
