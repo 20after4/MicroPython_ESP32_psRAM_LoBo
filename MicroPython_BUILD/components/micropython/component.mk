@@ -166,6 +166,7 @@ SRC_C =  $(addprefix esp32/,\
 	machine_neopixel.c \
 	machine_dht.c \
 	network_bluetooth.c \
+	network_lan.c \
 	)
 
 ifdef CONFIG_MICROPY_USE_CURL

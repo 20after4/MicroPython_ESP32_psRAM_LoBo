@@ -47,6 +47,8 @@ STATIC mp_obj_t mod_gsm_startGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
 			{ MP_QSTR_apn,          MP_ARG_REQUIRED | MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
 			{ MP_QSTR_connect,                        MP_ARG_KW_ONLY  | MP_ARG_BOOL, {.u_bool = false} },
 			{ MP_QSTR_wait,	                          MP_ARG_KW_ONLY  | MP_ARG_BOOL, {.u_bool = false} },
+			{ MP_QSTR_rts,		                      MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
+			{ MP_QSTR_cts,		                      MP_ARG_KW_ONLY  | MP_ARG_INT,  {.u_int = -1} },
 	};
 	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -82,7 +84,7 @@ STATIC mp_obj_t mod_gsm_startGSM(mp_uint_t n_args, const mp_obj_t *pos_args, mp_
     uint8_t wait = args[7].u_bool;
     if (args[6].u_bool == false) wait = 0;
 
-    int res = ppposInit(tx, rx, bdr, user, pass, apn, args[7].u_bool, args[6].u_bool);
+    int res = ppposInit(tx, rx, args[8].u_int, args[9].u_int, bdr, user, pass, apn, args[7].u_bool, args[6].u_bool);
 
     if (res == 0) return mp_const_true;
 
@@ -175,25 +177,35 @@ STATIC mp_obj_t mod_gsm_sendSMS(mp_uint_t n_args, const mp_obj_t *pos_args, mp_m
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_gsm_sendSMS_obj, 2, mod_gsm_sendSMS);
 
-//------------------------------------------------------------------------------------------------
-STATIC mp_obj_t mod_gsm_readSMS(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
+//---------------------------------------------------------------------------------------------
+STATIC mp_obj_t mod_gsm_checkSMS(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
     const mp_arg_t allowed_args[] = {
-			{ MP_QSTR_sort,		MP_ARG_KW_ONLY | MP_ARG_INT,  {.u_int = 0} },
-			{ MP_QSTR_delete,	MP_ARG_KW_ONLY | MP_ARG_BOOL,  {.u_bool = false} },
-			{ MP_QSTR_new,		MP_ARG_KW_ONLY | MP_ARG_BOOL,  {.u_bool = false} },
+			{ MP_QSTR_sort,		MP_ARG_KW_ONLY | MP_ARG_INT,  {.u_int = SMS_SORT_NONE} },
+			{ MP_QSTR_status,	MP_ARG_KW_ONLY | MP_ARG_INT,  {.u_int = SMS_LIST_ALL} },
 	};
 	mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    int sort = 0;
+    int sort = SMS_SORT_NONE;
+    int rd_status = SMS_LIST_ALL;
     if ((args[0].u_int == SMS_SORT_ASC) || (args[0].u_int == SMS_SORT_DESC)) sort = args[0].u_int;
+    if ((args[1].u_int == SMS_LIST_NEW) || (args[1].u_int == SMS_LIST_OLD)) rd_status = args[1].u_int;
 
-	mp_obj_t msg = (mp_obj_t)smsReadTuple(sort, args[2].u_bool, args[1].u_bool);
+    mp_obj_t msg = mp_const_none;
+	SMS_indexes indexes;
+	int nmsg = getMessagesList(rd_status, 0, NULL, &indexes, sort);
+	if (nmsg > 0) {
+		mp_obj_t msgidx_tuple[nmsg];
+		for (int i=0; i<nmsg; i++) {
+			msgidx_tuple[i] = mp_obj_new_int(indexes.idx[i]);
+		}
+		msg = mp_obj_new_tuple(nmsg, msgidx_tuple);
+	}
 
 	return msg;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_gsm_readSMS_obj, 0, mod_gsm_readSMS);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_gsm_checkSMS_obj, 0, mod_gsm_checkSMS);
 
 //------------------------------------------------
 STATIC mp_obj_t mod_gsm_deleteSMS(mp_obj_t idx_in)
@@ -203,14 +215,41 @@ STATIC mp_obj_t mod_gsm_deleteSMS(mp_obj_t idx_in)
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_gsm_deleteSMS_obj, mod_gsm_deleteSMS);
 
-//---------------------------------------
-STATIC mp_obj_t mod_gsm_UnreadCount()
+//------------------------------------------------------------------
+STATIC mp_obj_t mod_gsm_readSMS(size_t n_args, const mp_obj_t *args)
 {
-	int cnt = smsCountNew();
+    mp_obj_t msg = mp_const_none;
+	SMS_indexes indexes;
+	SMS_Msg smsmsg;
+	int idx = mp_obj_get_int(args[0]);
+	int delsms = 0;
+	if (n_args > 1) delsms = mp_obj_get_int(args[1]);
 
-	return mp_obj_new_int(cnt);
+	int nmsg = getMessagesList(SMS_LIST_ALL, idx, &smsmsg, NULL, SMS_SORT_NONE);
+	if (nmsg > 0) {
+		mp_obj_t sms_tuple[7];
+		sms_tuple[0] = mp_obj_new_int(smsmsg.idx);
+		sms_tuple[1] = mp_obj_new_str(smsmsg.stat, strlen(smsmsg.stat), false);
+		sms_tuple[2] = mp_obj_new_str(smsmsg.from, strlen(smsmsg.from), false);
+		sms_tuple[3] = mp_obj_new_str(smsmsg.time, strlen(smsmsg.time), false);
+		sms_tuple[4] = mp_obj_new_int(smsmsg.time_value);
+		sms_tuple[5] = mp_obj_new_int(smsmsg.tz);
+
+		if (smsmsg.msg) {
+			sms_tuple[6] = mp_obj_new_str(smsmsg.msg, strlen(smsmsg.msg), false);
+			free(smsmsg.msg);
+		}
+		else sms_tuple[6] = mp_const_none;
+
+		msg = mp_obj_new_tuple(7, sms_tuple);
+
+		if (delsms) smsDelete(idx);
+	}
+
+	return msg;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(mod_gsm_UnreadCount_obj, mod_gsm_UnreadCount);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_gsm_readSMS_obj, 1, 2, mod_gsm_readSMS);
+
 
 //-----------------------------------------------------------------
 STATIC mp_obj_t mod_gsm_SMS_cb(size_t n_args, const mp_obj_t *args)
@@ -287,10 +326,11 @@ STATIC mp_obj_t mod_gsm_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map
     	mp_raise_msg(&mp_type_OSError, "Buffer allocation error");
     }
 
-    int res = at_Cmd(atcmd, resp, buffer, 1024, tmo, cmddata);
+    char **pbuffer = &buffer;
+    int res = at_Cmd(atcmd, resp, pbuffer, 1024, tmo, cmddata);
     if (res == 0) {
         mp_obj_t response = mp_obj_new_str("", 0, false);
-    	free(buffer);
+    	free(*pbuffer);
         return response;
     }
 
@@ -302,7 +342,7 @@ STATIC mp_obj_t mod_gsm_atCmd(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map
     	}
     }
     mp_obj_t response = mp_obj_new_str(buffer, strlen(buffer), false);
-	free(buffer);
+	free(*pbuffer);
     return response;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(mod_gsm_atCmd_obj, 1, mod_gsm_atCmd);
@@ -316,9 +356,9 @@ STATIC const mp_rom_map_elem_t gsm_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_disconnect),	MP_ROM_PTR(&mod_gsm_disconnectGSM_obj) },
     { MP_ROM_QSTR(MP_QSTR_connect),		MP_ROM_PTR(&mod_gsm_connectGSM_obj) },
     { MP_ROM_QSTR(MP_QSTR_sendSMS),		MP_ROM_PTR(&mod_gsm_sendSMS_obj) },
+    { MP_ROM_QSTR(MP_QSTR_checkSMS),	MP_ROM_PTR(&mod_gsm_checkSMS_obj) },
     { MP_ROM_QSTR(MP_QSTR_readSMS),		MP_ROM_PTR(&mod_gsm_readSMS_obj) },
     { MP_ROM_QSTR(MP_QSTR_deleteSMS),	MP_ROM_PTR(&mod_gsm_deleteSMS_obj) },
-    { MP_ROM_QSTR(MP_QSTR_unread),		MP_ROM_PTR(&mod_gsm_UnreadCount_obj) },
     { MP_ROM_QSTR(MP_QSTR_sms_cb),		MP_ROM_PTR(&mod_gsm_SMS_cb_obj) },
     { MP_ROM_QSTR(MP_QSTR_debug),		MP_ROM_PTR(&mod_gsm_GSM_debug_obj) },
     { MP_ROM_QSTR(MP_QSTR_atcmd),		MP_ROM_PTR(&mod_gsm_atCmd_obj) },
@@ -326,6 +366,9 @@ STATIC const mp_rom_map_elem_t gsm_module_globals_table[] = {
 	{ MP_ROM_QSTR(MP_QSTR_SORT_NONE),	MP_ROM_INT(SMS_SORT_NONE) },
 	{ MP_ROM_QSTR(MP_QSTR_SORT_ASC),	MP_ROM_INT(SMS_SORT_ASC) },
 	{ MP_ROM_QSTR(MP_QSTR_SORT_DESC),	MP_ROM_INT(SMS_SORT_DESC) },
+	{ MP_ROM_QSTR(MP_QSTR_SMS_READ),	MP_ROM_INT(SMS_LIST_OLD) },
+	{ MP_ROM_QSTR(MP_QSTR_SMS_UNREAD),	MP_ROM_INT(SMS_LIST_NEW) },
+	{ MP_ROM_QSTR(MP_QSTR_SMS_ALL),		MP_ROM_INT(SMS_LIST_ALL) },
 };
 STATIC MP_DEFINE_CONST_DICT(gsm_module_globals, gsm_module_globals_table);
 

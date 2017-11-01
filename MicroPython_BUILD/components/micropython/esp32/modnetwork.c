@@ -7,6 +7,7 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2016, 2017 Nick Moore @mnemote
+ * Copyright (c) 2017 "Eric Poulsen" <eric@zyxod.com>
  *
  * Based on esp8266/modnetwork.c which is Copyright (c) 2015 Paul Sokolovsky
  * And the ESP IDF example code which is Public Domain / CC0
@@ -47,7 +48,8 @@
 #include "esp_log.h"
 #include "lwip/dns.h"
 #include "tcpip_adapter.h"
-#include <lwip/sockets.h>
+
+#include "modnetwork.h"
 
 #define MODNETWORK_INCLUDE_CONSTANTS (1)
 
@@ -125,13 +127,13 @@ STATIC const wlan_if_obj_t wlan_sta_obj = {{&wlan_if_type}, WIFI_IF_STA};
 STATIC const wlan_if_obj_t wlan_ap_obj = {{&wlan_if_type}, WIFI_IF_AP};
 
 //static wifi_config_t wifi_ap_config = {{{0}}};
-static wifi_config_t wifi_sta_config = {0};
+static wifi_config_t wifi_sta_config = {{{0}}};
 
 // Set to "true" if the STA interface is requested to be connected by the
 // user, used for automatic reassociation.
 static bool wifi_sta_connected = false;
 
-static char do_set_dns[20] = {'\0'};
+static uint8_t _isConnected = 0;
 
 // This function is called by the system-event task and so runs in a different
 // thread to the main MicroPython task.  It must not raise any Python exceptions.
@@ -141,34 +143,24 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
         ESP_LOGI("wifi", "STA_START");
         break;
     case SYSTEM_EVENT_STA_GOT_IP:
-        ESP_LOGI("wifi", "GOT_IP");
-        if (strlen(do_set_dns) > 6) {
-        	ip_addr_t dns_addr;
-            ESP_LOGI("wifi", "DNS address set to [%s]", do_set_dns);
-        	inet_pton(AF_INET, do_set_dns, &dns_addr);
-            dns_setserver(0, &dns_addr);
-    		inet_pton(AF_INET, "8.8.8.8", &dns_addr);
-    		dns_setserver(1, &dns_addr);
-            do_set_dns[0] = '\0';
-        }
-        break;
-    case SYSTEM_EVENT_STA_CONNECTED:
-        ESP_LOGI("wifi", "STA Connected");
+        ESP_LOGI("network", "GOT_IP");
+        _isConnected = 1;
         break;
     case SYSTEM_EVENT_STA_DISCONNECTED: {
         // This is a workaround as ESP32 WiFi libs don't currently
         // auto-reassociate.
+        _isConnected = 0;
         system_event_sta_disconnected_t *disconn = &event->event_info.disconnected;
         ESP_LOGI("wifi", "STA_DISCONNECTED, reason:%d", disconn->reason);
         switch (disconn->reason) {
-			case WIFI_REASON_BEACON_TIMEOUT:
-				mp_printf(MP_PYTHON_PRINTER, "beacon timeout\n");
-				// AP has dropped out; try to reconnect.
-				break;
-			case WIFI_REASON_NO_AP_FOUND:
-				mp_printf(MP_PYTHON_PRINTER, "no AP found\n");
-				// AP may not exist, or it may have momentarily dropped out; try to reconnect.
-				break;
+            case WIFI_REASON_BEACON_TIMEOUT:
+                mp_printf(MP_PYTHON_PRINTER, "beacon timeout\n");
+                // AP has dropped out; try to reconnect.
+                break;
+            case WIFI_REASON_NO_AP_FOUND:
+                mp_printf(MP_PYTHON_PRINTER, "no AP found\n");
+                // AP may not exist, or it may have momentarily dropped out; try to reconnect.
+                break;
             case WIFI_REASON_AUTH_FAIL:
                 mp_printf(MP_PYTHON_PRINTER, "authentication failed\n");
                 wifi_sta_connected = false;
@@ -184,7 +176,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
                     // STA is active so attempt to reconnect.
                     esp_err_t e = esp_wifi_connect();
                     if (e != ESP_OK) {
-                        mp_printf(MP_PYTHON_PRINTER, "error attempting to reconnect: 0x%04x\n", e);
+                        mp_printf(MP_PYTHON_PRINTER, "error attempting to reconnect: 0x%04x", e);
                     }
                 }
             }
@@ -192,7 +184,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
         break;
     }
     default:
-        ESP_LOGI("wifi", "event %d", event->event_id);
+        ESP_LOGI("network", "event %d", event->event_id);
         break;
     }
     return ESP_OK;
@@ -213,13 +205,26 @@ STATIC void require_if(mp_obj_t wlan_if, int if_no) {
 }
 
 STATIC mp_obj_t get_wlan(size_t n_args, const mp_obj_t *args) {
+    static int initialized = 0;
+    if (!initialized) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_LOGD("modnetwork", "Initializing WiFi");
+        ESP_EXCEPTIONS( esp_wifi_init(&cfg) );
+        ESP_EXCEPTIONS( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+        ESP_LOGD("modnetwork", "Initialized");
+        ESP_EXCEPTIONS( esp_wifi_set_mode(0) );
+        ESP_EXCEPTIONS( esp_wifi_start() );
+        ESP_LOGD("modnetwork", "Started");
+        initialized = 1;
+    }
+
     int idx = (n_args > 0) ? mp_obj_get_int(args[0]) : WIFI_IF_STA;
     if (idx == WIFI_IF_STA) {
         return MP_OBJ_FROM_PTR(&wlan_sta_obj);
     } else if (idx == WIFI_IF_AP) {
         return MP_OBJ_FROM_PTR(&wlan_ap_obj);
     } else {
-    	mp_raise_ValueError("invalid WLAN interface identifier");
+        mp_raise_ValueError("invalid WLAN interface identifier");
     }
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(get_wlan_obj, 0, 1, get_wlan);
@@ -232,15 +237,6 @@ STATIC mp_obj_t esp_initialize() {
         ESP_LOGD("modnetwork", "Initializing Event Loop");
         ESP_EXCEPTIONS( esp_event_loop_init(event_handler, NULL) );
         ESP_LOGD("modnetwork", "esp_event_loop_init done");
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        ESP_LOGD("modnetwork", "Initializing WiFi");
-        ESP_EXCEPTIONS( esp_wifi_init(&cfg) );
-        ESP_EXCEPTIONS( esp_wifi_set_storage(WIFI_STORAGE_FLASH) );
-        ESP_LOGD("modnetwork", "Initialized");
-        ESP_EXCEPTIONS( esp_wifi_set_mode(0) );
-        ESP_EXCEPTIONS( esp_wifi_start() );
-        esp_wifi_set_ps(WIFI_PS_NONE);
-        ESP_LOGD("modnetwork", "Started");
         initialized = 1;
     }
     return mp_const_none;
@@ -347,8 +343,9 @@ STATIC mp_obj_t esp_isconnected(mp_obj_t self_in) {
     wlan_if_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->if_id == WIFI_IF_STA) {
         tcpip_adapter_ip_info_t info;
-        tcpip_adapter_get_ip_info(WIFI_IF_STA, &info);
-        return mp_obj_new_bool(info.ip.addr != 0);
+        //tcpip_adapter_get_ip_info(WIFI_IF_STA, &info);
+        //return mp_obj_new_bool(info.ip.addr != 0);
+        return mp_obj_new_bool(_isConnected);
     } else {
         wifi_sta_list_t sta;
         esp_wifi_ap_get_sta_list(&sta);
@@ -360,23 +357,22 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_isconnected_obj, esp_isconnected);
 STATIC mp_obj_t esp_ifconfig(size_t n_args, const mp_obj_t *args) {
     wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     tcpip_adapter_ip_info_t info;
-    ip_addr_t dns_addr;
+    tcpip_adapter_dns_info_t dns_info;
     tcpip_adapter_get_ip_info(self->if_id, &info);
+    tcpip_adapter_get_dns_info(self->if_id, TCPIP_ADAPTER_DNS_MAIN, &dns_info);
     if (n_args == 1) {
         // get
-        dns_addr = dns_getserver(0);
         mp_obj_t tuple[4] = {
             netutils_format_ipv4_addr((uint8_t*)&info.ip, NETUTILS_BIG),
             netutils_format_ipv4_addr((uint8_t*)&info.netmask, NETUTILS_BIG),
             netutils_format_ipv4_addr((uint8_t*)&info.gw, NETUTILS_BIG),
-            netutils_format_ipv4_addr((uint8_t*)&dns_addr, NETUTILS_BIG),
+            netutils_format_ipv4_addr((uint8_t*)&dns_info.ip, NETUTILS_BIG),
         };
         return mp_obj_new_tuple(4, tuple);
     } else {
         // set
         mp_obj_t *items;
         mp_obj_get_array_fixed_n(args[1], 4, &items);
-
         netutils_parse_ipv4_addr(items[0], (void*)&info.ip, NETUTILS_BIG);
         if (mp_obj_is_integer(items[1])) {
             // allow numeric netmask, i.e.:
@@ -389,31 +385,25 @@ STATIC mp_obj_t esp_ifconfig(size_t n_args, const mp_obj_t *args) {
             netutils_parse_ipv4_addr(items[1], (void*)&info.netmask, NETUTILS_BIG);
         }
         netutils_parse_ipv4_addr(items[2], (void*)&info.gw, NETUTILS_BIG);
-        //netutils_parse_ipv4_addr(items[3], (void*)&dns_addr, NETUTILS_BIG);
-
+        netutils_parse_ipv4_addr(items[3], (void*)&dns_info.ip, NETUTILS_BIG);
         // To set a static IP we have to disable DHCP first
-        if (self->if_id == WIFI_IF_STA) {
-            esp_err_t e = tcpip_adapter_dhcpc_stop(WIFI_IF_STA);
+        if (self->if_id == WIFI_IF_STA || self->if_id == ESP_IF_ETH) {
+            esp_err_t e = tcpip_adapter_dhcpc_stop(self->if_id);
             if (e != ESP_OK && e != ESP_ERR_TCPIP_ADAPTER_DHCP_ALREADY_STOPPED) _esp_exceptions(e);
-            ESP_EXCEPTIONS(tcpip_adapter_set_ip_info(WIFI_IF_STA, &info));
-            //dns_setserver(0, &dns_addr);
-            size_t addr_len;
-            const char *addr_str = mp_obj_str_get_data(items[3], &addr_len);
-            if ((addr_len > 6) && (addr_len < 16)) {
-                memcpy(do_set_dns, addr_str, addr_len);
-                do_set_dns[addr_len] = '\0';
-            }
+            ESP_EXCEPTIONS(tcpip_adapter_set_ip_info(self->if_id, &info));
+            ESP_EXCEPTIONS(tcpip_adapter_set_dns_info(self->if_id, TCPIP_ADAPTER_DNS_MAIN, &dns_info));
         } else if (self->if_id == WIFI_IF_AP) {
             esp_err_t e = tcpip_adapter_dhcps_stop(WIFI_IF_AP);
             if (e != ESP_OK && e != ESP_ERR_TCPIP_ADAPTER_DHCP_ALREADY_STOPPED) _esp_exceptions(e);
             ESP_EXCEPTIONS(tcpip_adapter_set_ip_info(WIFI_IF_AP, &info));
+            ESP_EXCEPTIONS(tcpip_adapter_set_dns_info(WIFI_IF_AP, TCPIP_ADAPTER_DNS_MAIN, &dns_info));
             ESP_EXCEPTIONS(tcpip_adapter_dhcps_start(WIFI_IF_AP));
         }
         return mp_const_none;
     }
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_ifconfig_obj, 1, 2, esp_ifconfig);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_ifconfig_obj, 1, 2, esp_ifconfig);
 
 STATIC mp_obj_t esp_config(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
     if (n_args != 1 && kwargs->used != 0) {
@@ -538,8 +528,7 @@ STATIC mp_obj_t esp_config(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs
     return val;
 
 unknown:
-	mp_raise_ValueError("unknown config param");
-    return mp_const_none;
+    mp_raise_ValueError("unknown config param");
 }
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(esp_config_obj, 1, esp_config);
@@ -838,12 +827,12 @@ extern const mp_obj_type_t network_bluetooth_type;
 #endif
 
 
-
 //==============================================================
 STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_network) },
     { MP_OBJ_NEW_QSTR(MP_QSTR___init__), (mp_obj_t)&esp_initialize_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_WLAN), (mp_obj_t)&get_wlan_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_LAN), (mp_obj_t)&get_lan_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_phy_mode), (mp_obj_t)&esp_phy_mode_obj },
 	#ifdef CONFIG_MICROPY_USE_MQTT
 	{ MP_ROM_QSTR(MP_QSTR_mqtt), MP_ROM_PTR(&mqtt_type) },
@@ -855,7 +844,7 @@ STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
 	{ MP_ROM_QSTR(MP_QSTR_ftp), MP_ROM_PTR(&network_ftp_type) },
 	#endif
 	#ifdef CONFIG_MICROPY_USE_BLUETOOTH
-    { MP_ROM_QSTR(MP_QSTR_Bluetooth), MP_ROM_PTR(&network_bluetooth_type) },
+	{ MP_ROM_QSTR(MP_QSTR_Bluetooth), MP_ROM_PTR(&network_bluetooth_type) },
 	#endif
 
 #if MODNETWORK_INCLUDE_CONSTANTS
@@ -883,6 +872,11 @@ STATIC const mp_map_elem_t mp_module_network_globals_table[] = {
         MP_OBJ_NEW_SMALL_INT(WIFI_AUTH_WPA_WPA2_PSK) },
     { MP_OBJ_NEW_QSTR(MP_QSTR_AUTH_MAX),
         MP_OBJ_NEW_SMALL_INT(WIFI_AUTH_MAX) },
+
+    { MP_OBJ_NEW_QSTR(MP_QSTR_PHY_LAN8720),
+        MP_OBJ_NEW_SMALL_INT(PHY_LAN8720) },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_PHY_TLK110),
+        MP_OBJ_NEW_SMALL_INT(PHY_TLK110) },
 #endif
 };
 

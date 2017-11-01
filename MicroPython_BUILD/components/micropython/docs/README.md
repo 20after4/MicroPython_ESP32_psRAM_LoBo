@@ -11,6 +11,8 @@
 
 [Display module](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/blob/master/MicroPython_BUILD/components/micropython/docs/display.md)
 
+[GSM module](https://github.com/loboris/MicroPython_ESP32_psRAM_LoBo/blob/master/MicroPython_BUILD/components/micropython/docs/gsm.md)
+
 ---
 
 ### Other ESP32 documentation

@@ -21,7 +21,14 @@
 
 #define SMS_SORT_NONE	0
 #define SMS_SORT_ASC	1
-#define SMS_SORT_DESC	-1
+#define SMS_SORT_DESC	2
+
+#define SMS_LIST_ALL	0
+#define SMS_LIST_NEW	1
+#define SMS_LIST_OLD	2
+#define SMS_LIST_ALL_STR	"AT+CMGL=\"ALL\"\r\n"
+#define SMS_LIST_NEW_STR	"AT+CMGL=\"REC UNREAD\"\r\n"
+#define SMS_LIST_OLD_STR	"AT+CMGL=\"REC READ\"\r\n"
 
 typedef struct
 {
@@ -36,9 +43,9 @@ typedef struct
 
 typedef struct
 {
-	int		nmsg;
-	SMS_Msg	*messages;
-}SMS_Messages;
+	uint8_t	idx[32];
+	time_t	time[32];
+}SMS_indexes;
 
 
 /*
@@ -49,8 +56,8 @@ typedef struct
  * If 'wait' = 1, wait until connected
  * If 'doconn' = 0, only initialize the task, do not connect to Internet
  */
-//==================================================================================================
-int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn);
+//===================================================================================================================
+int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn);
 
 /*
  * Disconnect from Internet
@@ -116,21 +123,29 @@ int gsm_RFOn();
 int smsSend(char *smsnum, char *msg);
 
 /*
- * Read all SMS messages to 'SMS_Messages' structure
+ * Get messages list
+ *
+ * Params:
+ *  rd_status:	check all, unread or read messages
+ *    sms_idx:	return sms at index in msg
+ *        msg:	SMS message structure pointer
+ *    indexes:	pointer to indexes of the detected message
+ *       sort:	sort the indexes
  */
-//====================================================
-void smsRead(SMS_Messages *SMSmesg, int sort, int new);
-
-void *smsReadTuple(int sort, int new, int delete);
+//====================================================================================================
+int getMessagesList(uint8_t rd_status, int sms_idx, SMS_Msg *msg, SMS_indexes *indexes, uint8_t sort);
 
 /*
- * return number of new (unread) messages
+ * return number of messages of given type
+ * and, optionally the indexes of all new messages
  */
-int smsCountNew();
+//=============================================================
+int smsCount(uint8_t type, SMS_indexes *indexes, uint8_t sort);
 
 /*
  * Delete the message at GSM message index 'idx'
  */
+//=====================
 int smsDelete(int idx);
 
 //==============================================
@@ -139,8 +154,8 @@ int setSMS_cb(void *cb_func, uint32_t interval);
 //=========================
 void setDebug(uint8_t dbg);
 
-//====================================================================================
-int at_Cmd(char *cmd, char* resp, char *buffer, int buf_size, int tmo, char *cmddata);
+//=====================================================================================
+int at_Cmd(char *cmd, char* resp, char **buffer, int buf_size, int tmo, char *cmddata);
 
 #endif
 

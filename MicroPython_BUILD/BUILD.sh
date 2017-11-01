@@ -71,6 +71,16 @@ elif [ "${opt}" == "makefatfs" ] || [ "${opt}" == "flashfatfs" ] || [ "${opt}" =
     arg=${opt}
     opt="none"
 
+elif [ "${opt}" == "firmware" ]; then
+    if [ ! -f "build/MicroPython.bin" ]; then
+        echo ""
+        echo "Build firmware first."
+        echo ""
+        exit 1
+    fi
+    arg=${opt}
+    opt="none"
+
 else
     if [ "${opt}" == "" ]; then
         opt="all"
@@ -334,7 +344,15 @@ export PATH=${PWD}/Tools/xtensa-esp32-elf/bin:$PATH
 export IDF_PATH=${PWD}/Tools/esp-idf
 
 echo ""
-echo "Building MicroPython for ESP32${BUILD_TYPE}"
+if [ "${BUILD_TYPE}" == "" ]; then
+    echo "---------------------"
+    echo "MicroPython for ESP32"
+    echo "---------------------"
+else
+    echo "----------------------------------------"
+    echo "MicroPython for ESP32 with psRAM support"
+    echo "----------------------------------------"
+fi
 echo ""
 cd ${BUILD_BASE_DIR}
 
@@ -429,6 +447,31 @@ elif [ "${arg}" == "copyfatfs" ]; then
     echo "Flashing default FatFS image to ESP32..."
     echo "========================================"
     make copyfatfs
+elif [ "${arg}" == "firmware" ]; then
+    echo "======================="
+    echo "Saving the firmware ..."
+    echo "======================="
+    if [ "${BUILD_TYPE}" == "" ]; then
+        cp -f build/MicroPython.bin firmware/esp32 > /dev/null 2>&1
+        cp -f build/bootloader/bootloader.bin firmware/esp32/bootloader > /dev/null 2>&1
+        cp -f build/partitions_mpy.bin firmware/esp32 > /dev/null 2>&1
+        cp -f build/phy_init_data.bin firmware/esp32 > /dev/null 2>&1
+        cp -f sdkconfig firmware/esp32 > /dev/null 2>&1
+        echo "#!/bin/bash" > firmware/esp32/flash.sh
+        make print_flash_cmd >> firmware/esp32/flash.sh 2>/dev/null
+        chmod +x firmware/esp32/flash.sh > /dev/null 2>&1
+    else
+        cp -f build/MicroPython.bin firmware/esp32_psram > /dev/null 2>&1
+        cp -f build/bootloader/bootloader.bin firmware/esp32_psram/bootloader > /dev/null 2>&1
+        cp -f build/partitions_mpy.bin firmware/esp32_psram > /dev/null 2>&1
+        cp -f build/phy_init_data.bin firmware/esp32_psram > /dev/null 2>&1
+        cp -f sdkconfig firmware/esp32_psram > /dev/null 2>&1
+        echo "#!/bin/bash" > firmware/esp32_psram/flash.sh
+        make print_flash_cmd >> firmware/esp32_psram/flash.sh 2>/dev/null
+        chmod +x firmware/esp32_psram/flash.sh > /dev/null 2>&1
+    fi
+    echo "OK."
+    exit 0
 else
     echo "================================"
     echo "Building MicroPython firmware..."
@@ -458,25 +501,6 @@ if [ $result -eq 0 ]; then
     echo "OK."
     if [ "${arg}" == "all" ]; then
         echo "--------------------------------"
-        if [ "${BUILD_TYPE}" == "" ]; then
-            cp -f build/MicroPython.bin firmware/esp32 > /dev/null 2>&1
-            cp -f build/bootloader/bootloader.bin firmware/esp32/bootloader > /dev/null 2>&1
-            cp -f build/partitions_mpy.bin firmware/esp32 > /dev/null 2>&1
-            cp -f build/phy_init_data.bin firmware/esp32 > /dev/null 2>&1
-            cp -f sdkconfig firmware/esp32 > /dev/null 2>&1
-            echo "#!/bin/bash" > firmware/esp32/flash.sh
-            make print_flash_cmd >> firmware/esp32/flash.sh 2>/dev/null
-            chmod +x firmware/esp32/flash.sh > /dev/null 2>&1
-        else
-            cp -f build/MicroPython.bin firmware/esp32_psram > /dev/null 2>&1
-            cp -f build/bootloader/bootloader.bin firmware/esp32_psram/bootloader > /dev/null 2>&1
-            cp -f build/partitions_mpy.bin firmware/esp32_psram > /dev/null 2>&1
-            cp -f build/phy_init_data.bin firmware/esp32_psram > /dev/null 2>&1
-            cp -f sdkconfig firmware/esp32_psram > /dev/null 2>&1
-            echo "#!/bin/bash" > firmware/esp32_psram/flash.sh
-            make print_flash_cmd >> firmware/esp32_psram/flash.sh 2>/dev/null
-            chmod +x firmware/esp32_psram/flash.sh > /dev/null 2>&1
-        fi
         echo "Build complete."
         echo "You can now run ./BUILD.sh flash"
         echo "to deploy the firmware to ESP32"

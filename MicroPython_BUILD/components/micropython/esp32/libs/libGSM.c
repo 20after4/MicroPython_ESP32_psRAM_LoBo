@@ -369,13 +369,16 @@ static int atCmd_waitResponse(char * cmd, char *resp, char * resp1, int cmdSize,
 				char *ptemp = realloc(pbuf, size+512);
 				if (ptemp == NULL) {
 					if (debug) {
-						ESP_LOGE(TAG,"AT RESPONSE (to buffer): Error reallocating buffer");
+						ESP_LOGE(TAG,"AT RESPONSE (to buffer): Error reallocating buffer of size %d", size+512);
 					}
 					// Ignore any new data sent by modem
 					while (len > 0) {
 						len = uart_read_bytes(uart_num, (uint8_t*)data, 256, 100 / portTICK_RATE_MS);
 					}
-					return 0;
+					return tot; // return success with received bytes
+				}
+				else if (debug) {
+					ESP_LOGD(TAG,"AT RESPONSE (to buffer): buffer reallocated, new size: %d", size+512);
 				}
 				size += 512;
 				pbuf = ptemp;
@@ -553,8 +556,14 @@ static void checkSMS()
 		debug = 0;
 		if (sms_timer > SMS_check_interval) {
 			sms_timer = 0;
-			if (smsCountNew() > 0) {
-				mp_obj_t msg = (mp_obj_t)smsReadTuple(-1, 0, 0);
+			SMS_indexes indexes;
+			int nmsg = smsCount(SMS_LIST_NEW, &indexes, SMS_SORT_NONE);
+			if (nmsg > 0) {
+				mp_obj_t msgidx_tuple[nmsg];
+				for (int i=0; i<nmsg; i++) {
+					msgidx_tuple[i] = mp_obj_new_int(indexes.idx[i]);
+				}
+				mp_obj_t msg = mp_obj_new_tuple(nmsg, msgidx_tuple);
 				mp_sched_schedule(New_SMS_cb, msg);
 			}
 		}
@@ -584,18 +593,35 @@ static void pppos_client_task()
     	goto exit;
     }
 
+    uart_hw_flowcontrol_t flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     // Initialize the UART pins
     if (gpio_set_direction(gsm_pin_tx, GPIO_MODE_OUTPUT)) goto exit;
 	if (gpio_set_direction(gsm_pin_rx, GPIO_MODE_INPUT)) goto exit;
 	if (gpio_set_pull_mode(gsm_pin_rx, GPIO_PULLUP_ONLY)) goto exit;
+	if ((gsm_pin_rts >=0) && (gsm_pin_cts >= 0)) {
+	    if (gpio_set_direction(gsm_pin_rts, GPIO_MODE_OUTPUT)) goto exit;
+		if (gpio_set_direction(gsm_pin_cts, GPIO_MODE_INPUT)) goto exit;
+		if (gpio_set_pull_mode(gsm_pin_cts, GPIO_PULLUP_ONLY)) goto exit;
+		flow_ctrl = UART_HW_FLOWCTRL_CTS_RTS;
+	}
+	else if (gsm_pin_rts >=0) {
+	    if (gpio_set_direction(gsm_pin_rts, GPIO_MODE_OUTPUT)) goto exit;
+		flow_ctrl = UART_HW_FLOWCTRL_RTS;
+	}
+	else if (gsm_pin_cts >= 0) {
+		if (gpio_set_direction(gsm_pin_cts, GPIO_MODE_INPUT)) goto exit;
+		if (gpio_set_pull_mode(gsm_pin_cts, GPIO_PULLUP_ONLY)) goto exit;
+		flow_ctrl = UART_HW_FLOWCTRL_CTS;
+	}
 
 	uart_config_t uart_config = {
 			.baud_rate = gsm_baudrate,
 			.data_bits = UART_DATA_8_BITS,
 			.parity = UART_PARITY_DISABLE,
 			.stop_bits = UART_STOP_BITS_1,
-			.flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+			.flow_ctrl = flow_ctrl
 	};
+	if (flow_ctrl & UART_HW_FLOWCTRL_RTS) uart_config.rx_flow_ctrl_thresh = UART_FIFO_LEN/2;
 
 	// Configure UART parameters
 	if (uart_param_config(uart_num, &uart_config)) goto exit;
@@ -854,8 +880,8 @@ exit:
 	vTaskDelete(NULL);
 }
 
-//=================================================================================================
-int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn)
+//===================================================================================================================
+int ppposInit(int tx, int rx, int rts, int cts, int bdr, char *user, char *pass, char *apn, uint8_t wait, int doconn)
 {
 	if (pppos_mutex != NULL) xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	do_pppos_connect = doconn;
@@ -867,6 +893,8 @@ int ppposInit(int tx, int rx, int bdr, char *user, char *pass, char *apn, uint8_
 		// PPPoS task not running
 		gsm_pin_tx = tx;
 		gsm_pin_rx = rx;
+		gsm_pin_cts = cts;
+		gsm_pin_rts = rts;
 		gsm_baudrate = bdr;
 		strncpy(PPP_User, user, GSM_MAX_NAME_LEN);
 		strncpy(PPP_Pass, pass, GSM_MAX_NAME_LEN);
@@ -1097,6 +1125,246 @@ exit:
 	return ret;
 }
 
+//---------------------------------------
+time_t sms_time(char * msg_time, int *tz)
+{
+	if (strlen(msg_time) >= 20) {
+		// Convert message time to time structure
+		int hh,mm,ss,yy,mn,dd, tz;
+		struct tm tm;
+		sscanf(msg_time, "%u/%u/%u,%u:%u:%u%d", &yy, &mn, &dd, &hh, &mm, &ss, &tz);
+		tm.tm_hour = hh;
+		tm.tm_min = mm;
+		tm.tm_sec = ss;
+		tm.tm_year = yy+100;
+		tm.tm_mon = mn-1;
+		tm.tm_mday = dd;
+		if (tz) tz = tz/4;	// time zone info
+		return mktime(&tm);	// Linux time
+	}
+	return 0;
+}
+
+// Parse message in buffer to message structure
+//---------------------------------------------------------------
+static int getSMS(char *msgstart, SMS_Msg *msg, uint8_t msgalloc)
+{
+	char *msgidx = msgstart;
+	// Clear message structure
+	memset(msg, 0, sizeof(SMS_Msg));
+
+	// Get message info
+	char *pend = strstr(msgidx, "\r\n");
+	if (pend == NULL) return 0;
+
+	int len = pend-msgidx;
+	char hdr[len+4];
+	char buf[32];
+
+	memset(hdr, 0, len+4);
+	memcpy(hdr, msgidx, len);
+	hdr[len] = '\0';
+
+	if (msgalloc) {
+		msgidx = pend + 2;
+		// Allocate message body buffer and copy the data
+		len = strlen(msgidx);
+		msg->msg = (char *)calloc(len+1, 1);
+		if (msg->msg) {
+			memcpy(msg->msg, msgidx, len);
+			msg->msg[len] = '\0';
+		}
+	}
+
+	// Parse message info
+	msgidx = hdr;
+	pend = strstr(hdr, ",\"");
+	int i = 1;
+	while (pend != NULL) {
+		len = pend-msgidx;
+		if ((len < 32) && (len > 0)) {
+			memset(buf, 0, 32);
+			strncpy(buf, msgidx, len);
+			buf[len] = '\0';
+			if (buf[len-1] == '"') buf[len-1] = '\0';
+
+			if (i == 1) {
+				msg->idx = (int)strtol(buf, NULL, 0);	// message index
+			}
+			else if (i == 2) strcpy(msg->stat, buf);			// message status
+			else if (i == 3) strcpy(msg->from, buf);			// phone number of message sender
+			else if (i == 5) strcpy(msg->time, buf);			// the time when the message was sent
+		}
+		i++;
+		msgidx = pend + 2;
+		pend = strstr(msgidx, ",\"");
+		if (pend == NULL) pend = strstr(msgidx, "\"");
+	}
+
+	msg->time_value = sms_time(msg->time, &msg->tz);
+
+	return 1;
+}
+
+// Get message index and time
+//-----------------------------------------------------
+static int getSMSindex(char *msgstart, time_t *msgtime)
+{
+	char *msgidx = msgstart;
+	// Get message info
+	char *pend = strstr(msgidx, "\r\n");
+	if (pend == NULL) return 0;
+
+	int len = pend-msgidx;
+	char hdr[len+4];
+	char buf[32];
+	char msg_time[32] = {'\0'};
+	int msg_idx = 0;
+
+	memcpy(hdr, msgidx, len);
+	hdr[len] = '\0';
+
+	// Parse message info
+	msgidx = hdr;
+	pend = strstr(hdr, ",\"");
+	int i = 1;
+	while (pend != NULL) {
+		len = pend-msgidx;
+		if ((len < 32) && (len > 0)) {
+			memset(buf, 0, 32);
+			memcpy(buf, msgidx, len);
+			buf[len] = '\0';
+			if (buf[len-1] == '"') buf[len-1] = '\0';
+
+			if (i == 1) msg_idx = (int)strtol(buf, NULL, 0);	// message index
+			else if (i == 5) strcpy(msg_time, buf);				// the time when the message was sent
+		}
+		i++;
+		msgidx = pend + 2;
+		// find next entry
+		pend = strstr(msgidx, ",\"");
+		if (pend == NULL) pend = strstr(msgidx, "\"");
+	}
+
+	*msgtime = sms_time(msg_time, NULL);
+
+	return msg_idx;
+}
+
+//--------------------------------------------------------------------------------------------------------
+static int checkMessages(uint8_t rd_status, int sms_idx, SMS_Msg *msg, SMS_indexes *indexes, uint8_t sort)
+{
+    int timeoutCnt = 0;
+	size_t blen = 0;
+
+	// ** Send command to GSM
+	vTaskDelay(100 / portTICK_PERIOD_MS);
+	uart_flush(uart_num);
+
+	if (rd_status == SMS_LIST_NEW) uart_write_bytes(uart_num, SMS_LIST_NEW_STR, strlen(SMS_LIST_NEW_STR));
+	else if (rd_status == SMS_LIST_OLD) uart_write_bytes(uart_num, SMS_LIST_OLD_STR, strlen(SMS_LIST_OLD_STR));
+	else uart_write_bytes(uart_num, SMS_LIST_ALL_STR, strlen(SMS_LIST_ALL_STR));
+
+	uart_wait_tx_done(uart_num, 100 / portTICK_RATE_MS);
+
+	// ** Read GSM response
+	// wait for first response data
+	while (blen == 0) {
+		uart_get_buffered_data_len(uart_num, &blen);
+		vTaskDelay(10 / portTICK_PERIOD_MS);
+		timeoutCnt += 10;
+		if (timeoutCnt > 1000) {
+			if (debug) {
+				ESP_LOGE(TAG,"Check SMS, no response (timeout)");
+			}
+			return 0;
+		}
+	}
+
+	if (indexes !=NULL) memset(indexes, 0, sizeof(SMS_indexes));
+
+	char *rbuffer = calloc(1024, 1);
+	if (rbuffer == NULL) {
+		if (debug) {
+			ESP_LOGE(TAG,"Check SMS, Error allocating receive buffer");
+		}
+		return 0;
+	}
+
+	int len, buflen = 0, nmsg = 0;
+	uint8_t idx_found = 0;
+	char *msgstart = rbuffer;
+	char *msgend = NULL;
+	char *bufptr = rbuffer;
+	while (1) {
+		len = uart_read_bytes(uart_num, (uint8_t*)bufptr, 1023-buflen, 50 / portTICK_RATE_MS);
+		if (len == 0) break;
+		buflen += len;
+		bufptr += len;
+		*bufptr = '\0';
+		//printf("\n=== BUF: %d [%s]\n\n", len, rbuffer);
+
+		// Check message start string
+		msgstart = strstr(rbuffer, "+CMGL: ");
+		if (msgstart) msgend = strstr(msgstart, "\r\n\r\n");
+
+		while ((msgstart) && (msgend)) {
+			*msgend = '\0';
+			// We have the whole message in the buffer
+			//printf("--- MSG: [%s]\n", msgstart);
+			nmsg++;
+			if ((indexes !=NULL) && (nmsg < 33)) indexes->idx[nmsg-1] = getSMSindex(msgstart+7, &indexes->time[nmsg-1]);
+			if ((sms_idx == nmsg) && (msg != NULL)) {
+				getSMS(msgstart+7, msg, 1);
+				// Ignore remaining data from module
+				while (len > 0) {
+					len = uart_read_bytes(uart_num, (uint8_t*)rbuffer, 1023, 50 / portTICK_RATE_MS);
+				}
+				// and return
+				idx_found = 1;
+				break;
+			}
+
+			// Delete the message
+			memmove(rbuffer, msgend+4, buflen - (msgend-rbuffer+4));
+			buflen -= (msgend-rbuffer+4);
+			bufptr = rbuffer+buflen;
+			*bufptr = '\0';
+
+			// Check message start string
+			msgend = NULL;
+			msgstart = strstr(rbuffer, "+CMGL: ");
+			if (msgstart) msgend = strstr(msgstart, "\r\n\r\n");
+		}
+	}
+
+	free(rbuffer);
+
+	if ((msg != NULL) && (idx_found == 0)) return 0;
+
+	if ((nmsg > 0) && (indexes != NULL) && (sort != SMS_SORT_NONE)) {
+		// Sort messages
+    	bool f;
+    	int temp;
+    	time_t tempt;
+		for (int i=0; i<nmsg; ++i) {
+		    for (int j=i+1; j<nmsg; ++j) {
+		    	if (sort == SMS_SORT_ASC) f = (indexes->time[i] > indexes->time[j]);
+		    	else f = (indexes->time[i] < indexes->time[j]);
+		        if (f) {
+		            temp = indexes->idx[i];
+		            tempt = indexes->time[i];
+		            indexes->idx[i] = indexes->idx[j];
+		            indexes->time[i] = indexes->time[j];
+		            indexes->idx[j] = temp;
+		            indexes->time[j] = tempt;
+		        }
+		    }
+		}
+	}
+	return nmsg;
+}
+
 //==================================
 int smsSend(char *smsnum, char *msg)
 {
@@ -1140,275 +1408,39 @@ exit:
 	return res;
 }
 
-// Get number of messages in buffer
-//------------------------------
-static int numSMS(char *rbuffer)
-{
-	if (strlen(rbuffer) == 0) return 0;
-
-	char *msgidx = rbuffer;
-	int nmsg = 0;
-	while (1) {
-		msgidx = strstr(msgidx, "+CMGL: ");
-		if (msgidx == NULL) break;
-		nmsg++;
-		msgidx += 7;
-	}
-	return nmsg;
-}
-
-// Parse message at index idx to message structure
-//-----------------------------------------------------
-static int getSMS(char *rbuffer, int idx, SMS_Msg *msg)
-{
-	// Find requested message pointer
-	char *msgidx = rbuffer;
-	int nmsg = 0;
-	while (1) {
-		msgidx = strstr(msgidx, "+CMGL: ");
-		if (msgidx == NULL) break;
-		nmsg++;
-		msgidx += 7;
-		if (nmsg == idx) break;
-	}
-	if (nmsg != idx) return 0;
-
-	// Clear message structure
-	memset(msg, 0, sizeof(SMS_Msg));
-
-	// Get message info
-	char *pend = strstr(msgidx, "\r\n");
-	if (pend == NULL) return 0;
-
-	int len = pend-msgidx;
-	char hdr[len+4];
-	char buf[32];
-
-	memset(hdr, 0, len+4);
-	memcpy(hdr, msgidx, len);
-	hdr[len] = '\0';
-
-	// Get message body
-	msgidx = pend + 2;
-	pend = strstr(msgidx, "\r\n");
-	if (pend == NULL) return 0;
-
-	// Allocate message body buffer and copy the data
-	len = pend-msgidx;
-	char *msgdata = calloc(len+2, 1);
-	memcpy(msgdata, msgidx, len);
-	msg->msg = msgdata;
-
-	// Parse message info
-	msgidx = hdr;
-	pend = strstr(hdr, ",\"");
-	int i = 1;
-	while (pend != NULL) {
-		len = pend-msgidx;
-		if ((len < 32) && (len > 0)) {
-			memset(buf, 0, 32);
-			strncpy(buf, msgidx, len);
-			buf[len] = '\0';
-			if (buf[len-1] == '"') buf[len-1] = '\0';
-
-			if (i == 1) msg->idx = (int)strtol(buf, NULL, 0);	// message index
-			else if (i == 2) strcpy(msg->stat, buf);			// message status
-			else if (i == 3) strcpy(msg->from, buf);			// phone number of message sender
-			else if (i == 5) strcpy(msg->time, buf);			// the time when the message was sent
-		}
-		i++;
-		msgidx = pend + 2;
-		pend = strstr(msgidx, ",\"");
-		if (pend == NULL) pend = strstr(msgidx, "\"");
-	}
-	if (strlen(msg->time) >= 20) {
-		// Convert message time to time structure
-		int hh,mm,ss,yy,mn,dd, tz;
-		struct tm tm;
-		sscanf(msg->time, "%u/%u/%u,%u:%u:%u%d", &yy, &mn, &dd, &hh, &mm, &ss, &tz);
-		tm.tm_hour = hh;
-		tm.tm_min = mm;
-		tm.tm_sec = ss;
-		tm.tm_year = yy+100;
-		tm.tm_mon = mn-1;
-		tm.tm_mday = dd;
-		msg->time_value = mktime(&tm);	// Linux time
-		msg->tz = tz/4;					// time zone info
-	}
-	return nmsg;
-}
-
-//====================================================
-void smsRead(SMS_Messages *SMSmesg, int sort, int new)
-{
-	SMSmesg->messages = NULL;
-	SMSmesg->nmsg = 0;
-
-	if (sms_ready() == 0) return;
-
-	int res = -1;
-	int size = 1024;
-	char *rbuffer = malloc(size);
-	if (rbuffer == NULL) return;
-
-	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
-	doCheckSMS = 0;
-	xSemaphoreGive(pppos_mutex);
-
-	if (new) res = atCmd_waitResponse("AT+CMGL=\"REC UNREAD\"\r\n", "\r\nOK", NULL, -1, 1000, &rbuffer, size, NULL);
-	else res = atCmd_waitResponse("AT+CMGL=\"ALL\"\r\n", "\r\nOK", NULL, -1, 1000, &rbuffer, size, NULL);
-
-	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
-	doCheckSMS = 1;
-	xSemaphoreGive(pppos_mutex);
-
-	if (res <= 0) {
-		free(rbuffer);
-		return;
-	}
-
-	int nmsg = numSMS(rbuffer);
-	if (nmsg > 0) {
-		// Allocate buffer for nmsg messages
-		SMS_Msg *messages = calloc(nmsg, sizeof(SMS_Msg));
-		if (messages == NULL) {
-			free(rbuffer);
-			return;
-		}
-		SMS_Msg msg;
-		for (int i=0; i<nmsg; i++) {
-			if (getSMS(rbuffer, i+1, &msg) > 0) {
-				memcpy(messages + (i * sizeof(SMS_Msg)), &msg, sizeof(SMS_Msg));
-				SMSmesg->nmsg++;
-			}
-		}
-		if ((SMSmesg->nmsg) && (sort != SMS_SORT_NONE)) {
-			SMS_Msg *smessages = calloc(SMSmesg->nmsg, sizeof(SMS_Msg));
-			uint8_t mm[SMSmesg->nmsg];
-			memset(mm, 1, SMSmesg->nmsg);
-			if (sort == SMS_SORT_ASC) {
-				for (int idx = 0; idx < SMSmesg->nmsg; idx++) {
-					// find minimal time
-					time_t tm = 0x7FFFFFFF;
-					for (int i=0; i<SMSmesg->nmsg; i++) {
-						if (mm[i]) {
-							if ((messages + (i * sizeof(SMS_Msg)))->time_value < tm) tm = (messages + (i * sizeof(SMS_Msg)))->time_value;
-						}
-					}
-					// Copy the message
-					for (int i=0; i<SMSmesg->nmsg; i++) {
-						if (mm[i]) {
-							if ((messages + (i * sizeof(SMS_Msg)))->time_value == tm) {
-								memcpy(smessages + (idx * sizeof(SMS_Msg)), messages + (i * sizeof(SMS_Msg)), sizeof(SMS_Msg));
-								mm[i] = 0; // mark as processed
-								break;
-							}
-						}
-					}
-				}
-			}
-			else {
-				for (int idx = 0; idx < SMSmesg->nmsg; idx++) {
-					// find maximal time
-					time_t tm = 0;
-					for (int i=0; i<SMSmesg->nmsg; i++) {
-						if (mm[i]) {
-							if ((messages + (i * sizeof(SMS_Msg)))->time_value > tm) tm = (messages + (i * sizeof(SMS_Msg)))->time_value;
-						}
-					}
-					// Copy the message
-					for (int i=0; i<SMSmesg->nmsg; i++) {
-						if (mm[i]) {
-							if ((messages + (i * sizeof(SMS_Msg)))->time_value == tm) {
-								memcpy(smessages + (idx * sizeof(SMS_Msg)), messages + (i * sizeof(SMS_Msg)), sizeof(SMS_Msg));
-								mm[i] = 0; // mark as processed
-								break;
-							}
-						}
-					}
-				}
-			}
-			SMSmesg->messages = smessages;
-			free(messages);
-		}
-		else {
-			if (SMSmesg->nmsg) SMSmesg->messages = messages;
-			else free(messages);
-		}
-	}
-	free(rbuffer);
-}
-
-
-//===============================================
-void *smsReadTuple(int sort, int new, int delete)
-{
-    SMS_Messages messages;
-	mp_obj_t res_tuple[2];
-
-	smsRead(&messages, sort, new);
-
-	res_tuple[0] = mp_obj_new_int(messages.nmsg);
-	if (messages.nmsg > 0) {
-		mp_obj_t msg_tuple[messages.nmsg];
-		mp_obj_t sms_tuple[7];
-		SMS_Msg *msg;
-
-		for (int i=0; i<messages.nmsg; i++) {
-			msg = messages.messages + (i * sizeof(SMS_Msg));
-			sms_tuple[0] = mp_obj_new_int(msg->idx);
-			sms_tuple[1] = mp_obj_new_str(msg->stat, strlen(msg->stat), false);
-			sms_tuple[2] = mp_obj_new_str(msg->from, strlen(msg->from), false);
-			sms_tuple[3] = mp_obj_new_str(msg->time, strlen(msg->time), false);
-			sms_tuple[4] = mp_obj_new_int(msg->time_value);
-			sms_tuple[5] = mp_obj_new_int(msg->tz);
-
-			if (msg->msg) {
-				sms_tuple[6] = mp_obj_new_str(msg->msg, strlen(msg->msg), false);
-				free(msg->msg);
-			}
-			else sms_tuple[6] = mp_const_none;
-
-			msg_tuple[i] = mp_obj_new_tuple(7, sms_tuple);
-		}
-		// Delete all messages if requested
-		if (delete) {
-			for (int i=0; i<messages.nmsg; i++) {
-				msg = messages.messages + (i * sizeof(SMS_Msg));
-				smsDelete(msg->idx);
-			}
-		}
-		free(messages.messages);
-		res_tuple[1] = mp_obj_new_tuple(messages.nmsg, msg_tuple);
-	}
-	else res_tuple[1] = mp_const_none;
-
-	return mp_obj_new_tuple(2, res_tuple);
-}
-
-//===============
-int smsCountNew()
+//============================================================
+int smsCount(uint8_t type, SMS_indexes *indexes, uint8_t sort)
 {
 	if (sms_ready() == 0) return -1;
 
-	int res = -1;
-	int size = 1024;
-	char *rbuffer = malloc(size);
-	if (rbuffer == NULL) return -1;
-
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	doCheckSMS = 0;
 	xSemaphoreGive(pppos_mutex);
 
-	res = atCmd_waitResponse("AT+CMGL=\"REC UNREAD\",1\r\n", "\r\nOK", NULL, -1, 1000, &rbuffer, size, NULL);
+	int res = checkMessages(type, 0, NULL, indexes, sort);
 
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	doCheckSMS = 1;
 	xSemaphoreGive(pppos_mutex);
 
-	if (res > 0) res = numSMS(rbuffer);
+	return res;
+}
 
-	free(rbuffer);
+//===================================================================================================
+int getMessagesList(uint8_t rd_status, int sms_idx, SMS_Msg *msg, SMS_indexes *indexes, uint8_t sort)
+{
+	if (sms_ready() == 0) return -1;
+
+	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
+	doCheckSMS = 0;
+	xSemaphoreGive(pppos_mutex);
+
+	int res = checkMessages(rd_status, sms_idx, msg, indexes, sort);
+
+	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
+	doCheckSMS = 1;
+	xSemaphoreGive(pppos_mutex);
+
 	return res;
 }
 
@@ -1448,16 +1480,18 @@ void setDebug(uint8_t dbg)
 {
 	if (pppos_mutex != NULL) xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 	debug = dbg;
+	if (debug) esp_log_level_set(TAG, ESP_LOG_DEBUG);
+	else esp_log_level_set(TAG, ESP_LOG_NONE);
 	if (pppos_mutex != NULL) xSemaphoreGive(pppos_mutex);
 }
 
-//===================================================================================
-int at_Cmd(char *cmd, char* resp, char *buffer, int buf_size, int tmo, char *cmddata)
+//=======================================*============================================
+int at_Cmd(char *cmd, char* resp, char **buffer, int buf_size, int tmo, char *cmddata)
 {
 	if (ppposStatus() != GSM_STATE_IDLE) return 0;
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
 
-	int res = atCmd_waitResponse(cmd, resp, NULL, -1, tmo, &buffer, buf_size, cmddata);
+	int res = atCmd_waitResponse(cmd, resp, NULL, -1, tmo, buffer, buf_size, cmddata);
 
 	xSemaphoreGive(pppos_mutex);
 	return res;
