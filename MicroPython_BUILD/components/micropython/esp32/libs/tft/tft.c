@@ -2486,12 +2486,12 @@ void TFT_jpg_image(int x, int y, uint8_t scale, char *fname, uint8_t *buf, int s
 
 			dev.linbuf[0] = heap_caps_malloc(JPG_IMAGE_LINE_BUF_SIZE*3, MALLOC_CAP_DMA);
 			if (dev.linbuf[0] == NULL) {
-				if (image_debug) printf("Error allocating line buffer\r\n");
+				if (image_debug) printf("Error allocating line buffer #0\r\n");
 				goto exit;
 			}
 			dev.linbuf[1] = heap_caps_malloc(JPG_IMAGE_LINE_BUF_SIZE*3, MALLOC_CAP_DMA);
-			if (dev.linbuf[0] == NULL) {
-				if (image_debug) printf("Error allocating line buffer\r\n");
+			if (dev.linbuf[1] == NULL) {
+				if (image_debug) printf("Error allocating line buffer #1\r\n");
 				goto exit;
 			}
 
@@ -2958,6 +2958,10 @@ int TFT_read_touch(int *x, int* y, uint8_t raw)
 		}
     }
     else if (tp_type == TOUCH_TYPE_STMPE610) {
+        if (_width > _height) {
+            width = _height;
+            height = _width;
+        }
 		X = ((X - xleft) * width) / (xright - xleft);
 		Y = ((Y - ytop) * height) / (ybottom - ytop);
 
@@ -2973,13 +2977,13 @@ int TFT_read_touch(int *x, int* y, uint8_t raw)
 				break;
 			case LANDSCAPE:
 				tmp = X;
-				X = height - Y - 1;
-				Y = tmp;
+				X = Y;
+				Y = width - tmp -1;
 				break;
 			case LANDSCAPE_FLIP:
 				tmp = X;
-				X = Y;
-				Y = width - tmp - 1;
+				X = height - Y -1;
+				Y = tmp;
 				break;
 		}
     }
