@@ -29,15 +29,13 @@
 #include <errno.h> // for declaration of global errno variable
 #include <fcntl.h>
 
-#include "py/nlr.h"
 #include "py/runtime.h"
-#include "py/runtime0.h"
 #include "py/stream.h"
 
 #if MICROPY_PY_BTREE
 
-#include "lib/berkeley-db-1.xx/include/db.h"
-#include "lib/berkeley-db-1.xx/btree/btree.h"
+#include <db.h>
+#include <../../btree/btree.h>
 
 typedef struct _mp_obj_btree_t {
     mp_obj_base_t base;

@@ -16,7 +16,7 @@
 # ./BUILD copyfs        - flash prebuilt spiffs image to ESP32
 
 
-TOOLS_VER=ver20171101.id
+TOOLS_VER=ver20171105.id
 
 #---------------------------------------------------------------------------------------------------------------------
 # Check parameters
@@ -458,7 +458,7 @@ elif [ "${arg}" == "firmware" ]; then
         cp -f build/phy_init_data.bin firmware/esp32 > /dev/null 2>&1
         cp -f sdkconfig firmware/esp32 > /dev/null 2>&1
         echo "#!/bin/bash" > firmware/esp32/flash.sh
-        make print_flash_cmd >> firmware/esp32/flash.sh 2>/dev/null
+        make echo_flash_cmd >> firmware/esp32/flash.sh 2>/dev/null
         chmod +x firmware/esp32/flash.sh > /dev/null 2>&1
     else
         cp -f build/MicroPython.bin firmware/esp32_psram > /dev/null 2>&1
@@ -467,7 +467,7 @@ elif [ "${arg}" == "firmware" ]; then
         cp -f build/phy_init_data.bin firmware/esp32_psram > /dev/null 2>&1
         cp -f sdkconfig firmware/esp32_psram > /dev/null 2>&1
         echo "#!/bin/bash" > firmware/esp32_psram/flash.sh
-        make print_flash_cmd >> firmware/esp32_psram/flash.sh 2>/dev/null
+        make echo_flash_cmd >> firmware/esp32_psram/flash.sh 2>/dev/null
         chmod +x firmware/esp32_psram/flash.sh > /dev/null 2>&1
     fi
     echo "OK."

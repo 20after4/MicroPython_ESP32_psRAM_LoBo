@@ -66,6 +66,7 @@ MP_EXTRA_INC += -I$(BUILD_DIR_BASE)/include
 MP_EXTRA_INC += -I$(ESPCOMP)/bootloader_support/include
 MP_EXTRA_INC += -I$(ESPCOMP)/driver/include
 MP_EXTRA_INC += -I$(ESPCOMP)/driver/include/driver
+MP_EXTRA_INC += -I$(ESPCOMP)/esp_adc_cal/include
 MP_EXTRA_INC += -I$(ESPCOMP)/nghttp/port/include
 MP_EXTRA_INC += -I$(ESPCOMP)/nghttp/nghttp2/lib/includes
 MP_EXTRA_INC += -I$(ESPCOMP)/esp32/include

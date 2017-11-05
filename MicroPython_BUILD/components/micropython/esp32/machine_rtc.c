@@ -5,6 +5,7 @@
  *
  * Copyright (c) 2013, 2014 Damien P. George
  * Copyright (c) 2015 Daniel Campora
+ * Copyright (c) 2017 "Eric Poulsen" <eric@zyxod.com>
  * Copyright (c) 2017 Boris Lovosevic
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy

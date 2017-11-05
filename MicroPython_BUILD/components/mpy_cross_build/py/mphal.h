@@ -1,5 +1,5 @@
 /*
- * This file is part of the Micro Python project, http://micropython.org/
+ * This file is part of the MicroPython project, http://micropython.org/
  *
  * The MIT License (MIT)
  *
@@ -35,7 +35,7 @@
 #endif
 
 #ifndef mp_hal_stdin_rx_chr
-int mp_hal_stdin_rx_chr(uint32_t timeout);
+int mp_hal_stdin_rx_chr(void);
 #endif
 
 #ifndef mp_hal_stdout_tx_str

@@ -98,8 +98,32 @@ STATIC void disconnected_cb(void *self, void *params)
 STATIC void subscribed_cb(void *self, void *params)
 {
     mqtt_client *client = (mqtt_client *)self;
+    const char *topic = (const char *)params;
 
-    if (client->settings->mpy_subscribed_cb) mp_sched_schedule(client->settings->mpy_subscribed_cb, mp_obj_new_str(client->name, strlen(client->name), 0));
+    if (client->settings->mpy_subscribed_cb) {
+    	mp_obj_t tuple[2];
+    	tuple[0] = mp_obj_new_str(client->name, strlen(client->name), 0);
+    	if (topic) tuple[1] = mp_obj_new_str(topic, strlen(topic), 0);
+    	else tuple[1] = mp_obj_new_str("?", 1, 0);;
+
+    	mp_sched_schedule(client->settings->mpy_subscribed_cb, mp_obj_new_tuple(2, tuple));
+    }
+}
+
+//---------------------------------------------------
+STATIC void unsubscribed_cb(void *self, void *params)
+{
+    mqtt_client *client = (mqtt_client *)self;
+    const char *topic = (const char *)params;
+
+    if (client->settings->mpy_unsubscribed_cb) {
+    	mp_obj_t tuple[2];
+    	tuple[0] = mp_obj_new_str(client->name, strlen(client->name), 0);
+    	if (topic) tuple[1] = mp_obj_new_str(topic, strlen(topic), 0);
+    	else tuple[1] = mp_obj_new_str("?", 1, 0);;
+
+    	mp_sched_schedule(client->settings->mpy_unsubscribed_cb, mp_obj_new_tuple(2, tuple));
+    }
 }
 
 //------------------------------------------------
@@ -226,7 +250,7 @@ STATIC void mqtt_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_
 STATIC mp_obj_t mqtt_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args)
 {
 	enum { ARG_name, ARG_host, ARG_user, ARG_pass, ARG_port, ARG_reconnect, ARG_clientid, ARG_cleansess, ARG_keepalive, ARG_qos, ARG_retain, ARG_secure,
-		   ARG_datacb, ARG_connected, ARG_disconnected, ARG_subscribed, ARG_published };
+		   ARG_datacb, ARG_connected, ARG_disconnected, ARG_subscribed, ARG_unsubscribed, ARG_published };
 
     const mp_arg_t mqtt_init_allowed_args[] = {
 			{ MP_QSTR_name,   	    	MP_ARG_REQUIRED | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
@@ -245,6 +269,7 @@ STATIC mp_obj_t mqtt_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
 			{ MP_QSTR_connected_cb,  	MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
 			{ MP_QSTR_disconnected_cb,	MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
 			{ MP_QSTR_subscribed_cb,  	MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
+			{ MP_QSTR_unsubscribed_cb, 	MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
 			{ MP_QSTR_published_cb,		MP_ARG_KW_ONLY  | MP_ARG_OBJ,  {.u_obj = mp_const_none} },
 	};
 	mp_arg_val_t args[MP_ARRAY_SIZE(mqtt_init_allowed_args)];
@@ -318,6 +343,11 @@ STATIC mp_obj_t mqtt_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
 	    self->client->settings->mpy_subscribed_cb = args[ARG_subscribed].u_obj;
 	}
 
+    if (MP_OBJ_IS_FUN(args[ARG_unsubscribed].u_obj)) {
+	    self->client->settings->unsubscribe_cb = (void*)unsubscribed_cb;
+	    self->client->settings->mpy_unsubscribed_cb = args[ARG_unsubscribed].u_obj;
+	}
+
     if (MP_OBJ_IS_FUN(args[ARG_published].u_obj)) {
 	    self->client->settings->publish_cb = (void*)published_cb;
 	    self->client->settings->mpy_published_cb = args[ARG_published].u_obj;
@@ -340,7 +370,7 @@ STATIC mp_obj_t mqtt_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
 STATIC mp_obj_t mqtt_op_config(mp_uint_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
 	enum { ARG_clientid, ARG_reconnect, ARG_cleansess, ARG_keepalive, ARG_qos, ARG_retain, ARG_secure,
-		   ARG_datacb, ARG_connected, ARG_disconnected, ARG_subscribed, ARG_published };
+		   ARG_datacb, ARG_connected, ARG_disconnected, ARG_subscribed, ARG_unsubscribed, ARG_published };
     mqtt_obj_t *self = pos_args[0];
     if (checkClient(self)) return mp_const_none;
 
@@ -356,6 +386,7 @@ STATIC mp_obj_t mqtt_op_config(mp_uint_t n_args, const mp_obj_t *pos_args, mp_ma
 			{ MP_QSTR_connected_cb,  	MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = mp_const_none} },
 			{ MP_QSTR_disconnected_cb,	MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = mp_const_none} },
 			{ MP_QSTR_subscribed_cb,  	MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+			{ MP_QSTR_unsubscribed_cb, 	MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = mp_const_none} },
 			{ MP_QSTR_published_cb,		MP_ARG_KW_ONLY  | MP_ARG_OBJ, {.u_obj = mp_const_none} },
 	};
 	mp_arg_val_t args[MP_ARRAY_SIZE(mqtt_config_allowed_args)];
@@ -391,6 +422,11 @@ STATIC mp_obj_t mqtt_op_config(mp_uint_t n_args, const mp_obj_t *pos_args, mp_ma
 	    self->client->settings->mpy_subscribed_cb = args[ARG_subscribed].u_obj;
 	    self->client->settings->subscribe_cb = (void*)subscribed_cb;
 	}
+    if (MP_OBJ_IS_FUN(args[ARG_unsubscribed].u_obj)) {
+	    self->client->settings->unsubscribe_cb = NULL;
+	    self->client->settings->mpy_unsubscribed_cb = args[ARG_unsubscribed].u_obj;
+	    self->client->settings->unsubscribe_cb = (void*)unsubscribed_cb;
+	}
     if (MP_OBJ_IS_FUN(args[ARG_published].u_obj)) {
 	    self->client->settings->publish_cb = NULL;
 	    self->client->settings->mpy_published_cb = args[ARG_published].u_obj;
@@ -408,8 +444,14 @@ STATIC mp_obj_t mqtt_op_subscribe(mp_obj_t self_in, mp_obj_t topic_in)
     if (checkClient(self)) return mp_const_none;
 
     const char *topic = mp_obj_str_get_str(topic_in);
+    int wait = 2000;
     mqtt_subscribe(self->client, topic, self->client->settings->lwt_qos);
-    return mp_const_none;
+	while ((wait > 0) && (self->client->subs_flag == 0)) {
+		vTaskDelay(10 / portTICK_PERIOD_MS);
+		wait -= 10;
+	}
+	if (wait) return mp_const_true;
+	else return mp_const_false;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(mqtt_subscribe_obj, mqtt_op_subscribe);
 
@@ -420,8 +462,14 @@ STATIC mp_obj_t mqtt_op_unsubscribe(mp_obj_t self_in, mp_obj_t topic_in)
     if (checkClient(self)) return mp_const_none;
 
     const char *topic = mp_obj_str_get_str(topic_in);
+    int wait = 2000;
     mqtt_unsubscribe(self->client, topic);
-    return mp_const_none;
+	while ((wait > 0) && (self->client->unsubs_flag == 0)) {
+		vTaskDelay(10 / portTICK_PERIOD_MS);
+		wait -= 10;
+	}
+	if (wait) return mp_const_true;
+	else return mp_const_false;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(mqtt_unsubscribe_obj, mqtt_op_unsubscribe);
 

@@ -41,8 +41,6 @@
 
 #include <limits.h>
 
-//#define __DBINTERFACE_PRIVATE
-
 #include "filevtable.h"
 #ifdef __DBINTERFACE_PRIVATE
 #include "lib/berkeley-db-1.xx/PORT/include/compat.h"

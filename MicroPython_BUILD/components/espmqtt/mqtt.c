@@ -54,6 +54,8 @@
 #include "libs/libGSM.h"
 
 const char *MQTT_TAG = "[Mqtt client]";
+static char *subs_last_topic = NULL;
+static char *unsubs_last_topic = NULL;
 
 //----------------------------------------------------------------
 static int resolve_dns(const char *host, struct sockaddr_in *ip) {
@@ -183,23 +185,22 @@ failed1:
 //-----------------------------------
 void closeclient(mqtt_client *client)
 {
-    ESP_LOGI(MQTT_TAG, "Closing client socket");
-
     if (client->socket != -1) {
-	  close(client->socket);
-	  client->socket = -1;
+		close(client->socket);
+		client->socket = -1;
+		ESP_LOGI(MQTT_TAG, "Closing client socket");
 	}
 
     if (client->settings->use_ssl) {
 		if (client->ssl != NULL) {
-		  SSL_shutdown(client->ssl);
-		  SSL_free(client->ssl);
-		  client->ssl = NULL;
+			SSL_shutdown(client->ssl);
+			SSL_free(client->ssl);
+			client->ssl = NULL;
 		}
 
 		if (client->ctx != NULL) {
-		  SSL_CTX_free(client->ctx);
-		  client->ctx = NULL;
+			SSL_CTX_free(client->ctx);
+			client->ctx = NULL;
 		}
     }
     client->status = MQTT_STATUS_DISCONNECTED;
@@ -328,6 +329,11 @@ void mqtt_sending_task(void *pvParameters)
     ESP_LOGI(MQTT_TAG, "Sending task started");
 
     while (connected) {
+    	if (client->terminate_mqtt) {
+            ESP_LOGI(MQTT_TAG, "Terminate, sending task exit.");
+    	    client->status = MQTT_STATUS_STOPPING;
+    		break;
+    	}
         if (xQueueReceive(client->xSendingQueue, &msg_len, 1000 / portTICK_RATE_MS)) {
             //queue available
             while (msg_len > 0) {
@@ -441,6 +447,7 @@ void mqtt_start_receive_schedule(mqtt_client *client)
 
     while (1) {
     	if (client->terminate_mqtt) {
+            ESP_LOGI(MQTT_TAG, "Terminate, receive schedule exit.");
     	    client->status = MQTT_STATUS_STOPPING;
     		break;
     	}
@@ -450,8 +457,13 @@ void mqtt_start_receive_schedule(mqtt_client *client)
 
         ESP_LOGD(MQTT_TAG, "Read length %d", read_len);
         if (read_len <= 0) {
-            // ECONNRESET for example
-            ESP_LOGE(MQTT_TAG, "Read error %d", errno);
+        	if (client->terminate_mqtt) {
+                ESP_LOGI(MQTT_TAG, "Terminate, receive schedule exit.");
+        	    client->status = MQTT_STATUS_STOPPING;
+        	}
+        	else {
+        		ESP_LOGE(MQTT_TAG, "Socket error (%d), exit Receive schedule", errno);
+        	}
             break;
         }
 
@@ -464,14 +476,22 @@ void mqtt_start_receive_schedule(mqtt_client *client)
             case MQTT_MSG_TYPE_SUBACK:
                 if (client->mqtt_state.pending_msg_type == MQTT_MSG_TYPE_SUBSCRIBE && client->mqtt_state.pending_msg_id == msg_id) {
                     ESP_LOGI(MQTT_TAG, "Subscribe successful");
+                    client->subs_flag = 1;
                     if (client->settings->subscribe_cb) {
-                        client->settings->subscribe_cb(client, NULL);
+                        client->settings->subscribe_cb(client, (void *)subs_last_topic);
                     }
                 }
                 break;
             case MQTT_MSG_TYPE_UNSUBACK:
-                if (client->mqtt_state.pending_msg_type == MQTT_MSG_TYPE_UNSUBSCRIBE && client->mqtt_state.pending_msg_id == msg_id)
+                //if (client->mqtt_state.pending_msg_type == MQTT_MSG_TYPE_UNSUBSCRIBE && client->mqtt_state.pending_msg_id == msg_id) {
+                if (client->mqtt_state.pending_msg_type == MQTT_MSG_TYPE_UNSUBSCRIBE) {
                     ESP_LOGI(MQTT_TAG, "UnSubscribe successful");
+                    client->unsubs_flag = 1;
+                    client->subs_flag = 1;
+                    if (client->settings->unsubscribe_cb) {
+                        client->settings->unsubscribe_cb(client, (void *)unsubs_last_topic);
+                    }
+                }
                 break;
             case MQTT_MSG_TYPE_PUBLISH:
                 if (msg_qos == 1)
@@ -697,22 +717,32 @@ int mqtt_start(mqtt_client *client)
 //----------------------------------------------------------------------
 void mqtt_subscribe(mqtt_client *client, const char *topic, uint8_t qos)
 {
+	if (subs_last_topic) free(subs_last_topic);
+	subs_last_topic = malloc(strlen(topic)+1);
+	if (subs_last_topic) strcpy(subs_last_topic, topic);
+
+	client->subs_flag = 0;
 	client->mqtt_state.sending_msg_type = MQTT_SENDING_TYPE_SUBSCRIBE;
     client->mqtt_state.outbound_message = mqtt_msg_subscribe(&client->mqtt_state.mqtt_connection,
                                           topic, qos,
                                           &client->mqtt_state.pending_msg_id);
-    ESP_LOGI(MQTT_TAG, "Queue subscribe, topic\"%s\", id: %d", topic, client->mqtt_state.pending_msg_id);
+    ESP_LOGI(MQTT_TAG, "Queue subscribe, topic \"%s\", id: %d", topic, client->mqtt_state.pending_msg_id);
     mqtt_queue(client);
 }
 
 //-----------------------------------------------------------
 void mqtt_unsubscribe(mqtt_client *client, const char *topic)
 {
+	if (unsubs_last_topic) free(unsubs_last_topic);
+	unsubs_last_topic = malloc(strlen(topic)+1);
+	if (unsubs_last_topic) strcpy(unsubs_last_topic, topic);
+
+    client->unsubs_flag = 0;
 	client->mqtt_state.sending_msg_type = MQTT_SENDING_TYPE_UNSUBSCRIBE;
 	client->mqtt_state.outbound_message = mqtt_msg_unsubscribe(&client->mqtt_state.mqtt_connection,
 	                                          topic,
 	                                          &client->mqtt_state.pending_msg_id);
-	ESP_LOGI(MQTT_TAG, "Queue unsubscribe, topic\"%s\", id: %d", topic, client->mqtt_state.pending_msg_id);
+	ESP_LOGI(MQTT_TAG, "Queue unsubscribe, topic \"%s\", id: %d", topic, client->mqtt_state.pending_msg_id);
 	mqtt_queue(client);
 }
 

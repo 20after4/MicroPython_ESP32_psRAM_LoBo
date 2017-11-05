@@ -74,7 +74,7 @@ static const char *TAG = "[PPPOS CLIENT]";
 typedef struct
 {
 	char		*cmd;
-	uint16_t	cmdSize;
+	int16_t		cmdSize;
 	char		*cmdResponseOnOk;
 	uint16_t	timeoutMs;
 	uint16_t	delayMs;
@@ -94,7 +94,7 @@ static GSM_Cmd cmd_AT =
 static GSM_Cmd cmd_NoSMSInd =
 {
 	.cmd = "AT+CNMI=0,0,0,0,0\r\n",
-	.cmdSize = sizeof("AT+CNMI=0,0,0,0,0\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = GSM_OK_Str,
 	.timeoutMs = 1000,
 	.delayMs = 0,
@@ -104,7 +104,7 @@ static GSM_Cmd cmd_NoSMSInd =
 static GSM_Cmd cmd_Reset =
 {
 	.cmd = "ATZ\r\n",
-	.cmdSize = sizeof("ATZ\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = GSM_OK_Str,
 	.timeoutMs = 300,
 	.delayMs = 0,
@@ -114,7 +114,7 @@ static GSM_Cmd cmd_Reset =
 static GSM_Cmd cmd_RFOn =
 {
 	.cmd = "AT+CFUN=1\r\n",
-	.cmdSize = sizeof("ATCFUN=1,0\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = GSM_OK_Str,
 	.timeoutMs = 10000,
 	.delayMs = 1000,
@@ -124,7 +124,7 @@ static GSM_Cmd cmd_RFOn =
 static GSM_Cmd cmd_EchoOff =
 {
 	.cmd = "ATE0\r\n",
-	.cmdSize = sizeof("ATE0\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = GSM_OK_Str,
 	.timeoutMs = 300,
 	.delayMs = 0,
@@ -134,7 +134,7 @@ static GSM_Cmd cmd_EchoOff =
 static GSM_Cmd cmd_Pin =
 {
 	.cmd = "AT+CPIN?\r\n",
-	.cmdSize = sizeof("AT+CPIN?\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = "CPIN: READY",
 	.timeoutMs = 5000,
 	.delayMs = 0,
@@ -144,7 +144,7 @@ static GSM_Cmd cmd_Pin =
 static GSM_Cmd cmd_Reg =
 {
 	.cmd = "AT+CREG?\r\n",
-	.cmdSize = sizeof("AT+CREG?\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = "CREG: 0,1",
 	.timeoutMs = 3000,
 	.delayMs = 2000,
@@ -164,9 +164,8 @@ static GSM_Cmd cmd_APN =
 static GSM_Cmd cmd_Connect =
 {
 	.cmd = "AT+CGDATA=\"PPP\",1\r\n",
-	.cmdSize = sizeof("AT+CGDATA=\"PPP\",1\r\n")-1,
 	//.cmd = "ATDT*99***1#\r\n",
-	//.cmdSize = sizeof("ATDT*99***1#\r\n")-1,
+	.cmdSize = -1,
 	.cmdResponseOnOk = "CONNECT",
 	.timeoutMs = 30000,
 	.delayMs = 1000,
@@ -179,9 +178,9 @@ static GSM_Cmd *GSM_Init[] =
 		&cmd_Reset,
 		&cmd_EchoOff,
 		&cmd_RFOn,
-		&cmd_NoSMSInd,
 		&cmd_Pin,
 		&cmd_Reg,
+		&cmd_NoSMSInd,
 		&cmd_APN,
 		&cmd_Connect,
 };

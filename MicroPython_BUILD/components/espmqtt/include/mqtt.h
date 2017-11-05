@@ -108,13 +108,14 @@ typedef struct mqtt_settings {
     mqtt_event_callback disconnected_cb;
 
     mqtt_event_callback subscribe_cb;
+    mqtt_event_callback unsubscribe_cb;
     mqtt_event_callback publish_cb;
     mqtt_event_callback data_cb;
 
     void *mpy_connected_cb;
     void *mpy_disconnected_cb;
-
     void *mpy_subscribed_cb;
+    void *mpy_unsubscribed_cb;
     void *mpy_published_cb;
     void *mpy_data_cb;
 
@@ -179,6 +180,8 @@ typedef struct mqtt_client {
   RINGBUF send_rb;
   uint32_t keepalive_tick;
   uint8_t status;
+  uint8_t subs_flag;
+  uint8_t unsubs_flag;
   uint8_t *msgbuf;
   uint8_t *topicbuf;
   bool terminate_mqtt;

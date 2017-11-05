@@ -100,15 +100,6 @@ void mp_task(void *pvParameter) {
 
     // Get and print reset & wakeup reasons
     mpsleep_init0();
-    char rst_reason[24] = { 0 };
-    mpsleep_wake_reason_t wkupreason = mpsleep_get_wake_reason();
-    mpsleep_get_reset_desc(rst_reason);
-    if (mpsleep_get_wake_reason() != MPSLEEP_NONE_WAKE) printf(" ");
-    printf("Reset reason: %s\n", rst_reason);
-    if (mpsleep_get_wake_reason() != MPSLEEP_NONE_WAKE) {
-		mpsleep_get_wake_desc(rst_reason);
-		printf("Wakeup source: %s\n", rst_reason);
-    }
 
     if (mpsleep_get_reset_cause() != MPSLEEP_DEEPSLEEP_RESET) rtc_init0();
 
@@ -116,15 +107,15 @@ void mp_task(void *pvParameter) {
     mp_thread_preinit(&mp_task_stack[0], MP_TASK_STACK_LEN);
 	#endif
 
-    // Initialize the stack pointer for the main thread
-    mp_stack_set_top((void *)sp);
-    mp_stack_set_limit(MP_TASK_STACK_SIZE - 1024);
-
 soft_reset:
 	// Thread init
 	#if MICROPY_PY_THREAD
 	mp_thread_init();
 	#endif
+
+    // Initialize the stack pointer for the main thread
+    mp_stack_set_top((void *)sp);
+    mp_stack_set_limit(MP_TASK_STACK_SIZE - 1024);
 
     // initialize the mp heap
     gc_init(mp_task_heap, mp_task_heap + MP_TASK_HEAP_SIZE);
@@ -136,7 +127,7 @@ soft_reset:
     mp_obj_list_init(mp_sys_argv, 0);
     readline_init0();
 
-    // initialise peripherals
+	// initialise peripherals
     machine_pins_init();
 
     // Mount internal flash file system
@@ -156,7 +147,44 @@ soft_reset:
     }
     else printf("Error mounting Flash fs\n");
 
-    // Main loop
+    // === Print some info ===
+    gc_info_t info;
+    gc_info(&info);
+    // set gc.threshold to 87.5% of usable heap
+	MP_STATE_MEM(gc_alloc_threshold) = ((info.total / 8) * 7) / MICROPY_BYTES_PER_GC_BLOCK;
+
+	#if CONFIG_FREERTOS_UNICORE
+    	printf("\nFreeRTOS running only on FIRST CORE.\n");
+	#else
+    	printf("\nFreeRTOS running on BOTH CORES, MicroPython task started on App Core.\n");
+	#endif
+
+    char rst_reason[24] = { 0 };
+	mpsleep_get_reset_desc(rst_reason);
+	if (mpsleep_get_wake_reason() != MPSLEEP_NONE_WAKE) printf(" ");
+	printf("\n Reset reason: %s\n", rst_reason);
+	if (mpsleep_get_wake_reason() != MPSLEEP_NONE_WAKE) {
+		mpsleep_get_wake_desc(rst_reason);
+		printf("Wakeup source: %s\n", rst_reason);
+	}
+
+	printf("    uPY stack: %d bytes\n", MP_TASK_STACK_LEN-1024);
+
+	#if CONFIG_SPIRAM_SUPPORT
+		// ## USING SPI RAM FOR HEAP ##
+		#if CONFIG_SPIRAM_USE_CAPS_ALLOC
+		printf("     uPY heap: %u/%u/%u bytes (in SPIRAM using heap_caps_malloc)\n\n", info.total, info.used, info.free);
+		#elif SPIRAM_USE_MEMMAP
+		printf("     uPY heap: %u/%u/%u bytes (in SPIRAM using MEMMAP)\n\n", info.total, info.used, info.free);
+		#else
+		printf("     uPY heap: %u/%u/%u bytes (in SPIRAM using malloc)\n\n", info.total, info.used, info.free);
+		#endif
+	#else
+		// ## USING DRAM FOR HEAP ##
+		printf("     uPY heap: %u/%u/%u bytes\n\n", info.total, info.used, info.free);
+	#endif
+
+	// === Main loop ===
     for (;;) {
         if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
             if (pyexec_raw_repl() != 0) {
@@ -200,29 +228,18 @@ void micropython_entry(void) {
 	esp_log_level_set(FTP_TAG, CONFIG_FTPSERVER_LOG_LEVEL);
 	#endif
 
-	#if CONFIG_FREERTOS_UNICORE
-    printf("\nFreeRTOS running only on FIRST CORE.\n");
-    #else
-    printf("\nFreeRTOS running on BOTH CORES, MicroPython task started on App Core.\n");
-    #endif
-    printf("\nuPY stack size = %d bytes\n", MP_TASK_STACK_LEN-1024);
-
     // ==== Allocate heap memory ====
     #if CONFIG_SPIRAM_SUPPORT
 		// ## USING SPI RAM FOR HEAP ##
 		#if CONFIG_SPIRAM_USE_CAPS_ALLOC
-		printf("uPY  heap size = %d bytes (in SPIRAM using heap_caps_malloc)\n\n", MP_TASK_HEAP_SIZE);
 		mp_task_heap = heap_caps_malloc(MP_TASK_HEAP_SIZE, MALLOC_CAP_SPIRAM);
 		#elif SPIRAM_USE_MEMMAP
-		printf("uPY  heap size = %d bytes (in SPIRAM using MEMMAP)\n\n", MP_TASK_HEAP_SIZE);
 		mp_task_heap = (uint8_t *)0x3f800000;
 		#else
-		printf("uPY  heap size = %d bytes (in SPIRAM using malloc)\n\n", MP_TASK_HEAP_SIZE);
 		mp_task_heap = malloc(MP_TASK_HEAP_SIZE);
 		#endif
     #else
 		// ## USING DRAM FOR HEAP ##
-		printf("uPY  heap size = %d bytes\n\n", MP_TASK_HEAP_SIZE);
 		mp_task_heap = malloc(MP_TASK_HEAP_SIZE);
     #endif
 

@@ -27,7 +27,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "py/runtime0.h"
 #include "py/runtime.h"
 #include "py/objstr.h"
 #include "py/mperrno.h"
@@ -36,6 +35,10 @@
 #if MICROPY_VFS
 
 #include "extmod/vfs_native.h"
+
+// For mp_vfs_proxy_call, the maximum number of additional args that can be passed.
+// A fixed maximum size is used to avoid the need for a costly variable array.
+#define PROXY_MAX_ARGS (2)
 
 // path is the path to lookup and *path_out holds the path within the VFS
 // object (starts with / if an absolute path).
@@ -96,6 +99,7 @@ STATIC mp_vfs_mount_t *lookup_path(mp_obj_t path_in, mp_obj_t *path_out) {
 }
 
 STATIC mp_obj_t mp_vfs_proxy_call(mp_vfs_mount_t *vfs, qstr meth_name, size_t n_args, const mp_obj_t *args) {
+    assert(n_args <= PROXY_MAX_ARGS);
     if (vfs == MP_VFS_NONE) {
         // mount point not found
         mp_raise_OSError(MP_ENODEV);
@@ -104,7 +108,7 @@ STATIC mp_obj_t mp_vfs_proxy_call(mp_vfs_mount_t *vfs, qstr meth_name, size_t n_
         // can't do operation on root dir
         mp_raise_OSError(MP_EPERM);
     }
-    mp_obj_t meth[n_args + 2];
+    mp_obj_t meth[2 + PROXY_MAX_ARGS];
     mp_load_method(vfs->obj, meth_name, meth);
     if (args != NULL) {
         memcpy(meth + 2, args, n_args * sizeof(*args));
@@ -125,7 +129,6 @@ mp_import_stat_t mp_vfs_import_stat(const char *path) {
     // TODO delegate to vfs.stat() method
     return MP_IMPORT_STAT_NO_EXIST;
 }
-
 
 mp_obj_t mp_vfs_mount(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_readonly, ARG_mkfs };
@@ -224,7 +227,6 @@ mp_obj_t mp_vfs_umount(mp_obj_t mnt_in) {
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(mp_vfs_umount_obj, mp_vfs_umount);
-
 
 // Note: buffering and encoding args are currently ignored
 mp_obj_t mp_vfs_open(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
