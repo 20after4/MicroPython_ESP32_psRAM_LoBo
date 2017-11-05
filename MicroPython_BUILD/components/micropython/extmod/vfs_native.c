@@ -493,20 +493,49 @@ STATIC mp_obj_t native_vfs_stat(mp_obj_t vfs_in, mp_obj_t path_in) {
 	mp_obj_native_vfs_t *self = MP_OBJ_TO_PTR(vfs_in);
 	const char *path = mp_obj_str_get_str(path_in);
 
-	char absbuf[MICROPY_ALLOC_PATH_MAX + 1];
-	path = mkabspath(self, path, absbuf, sizeof(absbuf));
-	if (path == NULL) {
-		mp_raise_OSError(errno);
-		return mp_const_none;
+	if ((path[0] != 0) && !((path[0] == '/') && (path[1] == 0))) {
+		char absbuf[MICROPY_ALLOC_PATH_MAX + 1];
+		path = mkabspath(self, path, absbuf, sizeof(absbuf));
+		if (path == NULL) {
+			mp_raise_OSError(errno);
+			return mp_const_none;
+		}
 	}
 
 	struct stat buf;
-	if (path[0] == 0 || (path[0] == '/' && path[1] == 0)) {
+	if ((path[0] == 0) || ((path[0] == '/') && (path[1] == 0))) {
 		// stat root directory
 		buf.st_size = 0;
 		buf.st_atime = 946684800; // Jan 1, 2000
+		buf.st_mtime = buf.st_atime; // Jan 1, 2000
+		buf.st_ctime = buf.st_atime; // Jan 1, 2000
 		buf.st_mode = MP_S_IFDIR;
-	} else {
+		if (self->device == VFS_NATIVE_TYPE_SPIFLASH) {
+			#if MICROPY_USE_SPIFFS
+			uint32_t total, used;
+			spiffs_fs_stat(&total, &used);
+			buf.st_size = total;
+			#else
+		    FRESULT res=0;
+			FATFS *fatfs;
+		    DWORD fre_clust;
+			res = f_getfree(VFS_NATIVE_MOUNT_POINT, &fre_clust, &fatfs);
+			if (res == 0) {
+				buf.st_size = fatfs->csize * SECSIZE(fatfs) * (fatfs->n_fatent - 2);
+			}
+			#endif
+		}
+		else if (self->device == VFS_NATIVE_TYPE_SDCARD) {
+		    FRESULT res=0;
+			FATFS *fatfs;
+		    DWORD fre_clust;
+			res = f_getfree(VFS_NATIVE_SDCARD_MOUNT_POINT, &fre_clust, &fatfs);
+			if (res == 0) {
+				buf.st_size = fatfs->csize * SECSIZE(fatfs) * (fatfs->n_fatent - 2);
+			}
+		}
+	}
+	else {
 		int res = stat(path, &buf);
 		if (res < 0) {
 			mp_raise_OSError(errno);
